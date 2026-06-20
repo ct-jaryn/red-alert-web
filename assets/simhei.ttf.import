@@ -1,0 +1,43 @@
+[remap]
+
+importer="font_data_dynamic"
+type="FontFile"
+uid="uid://bmog5lkbhj6w1"
+path="res://.godot/imported/simhei.ttf-a1c13d8816f4bba4e5259f7a38b8a1ea.fontdata"
+
+[deps]
+
+source_file="res://assets/simhei.ttf"
+dest_files=["res://.godot/imported/simhei.ttf-a1c13d8816f4bba4e5259f7a38b8a1ea.fontdata"]
+
+[params]
+
+Rendering=null
+antialiasing=1
+generate_mipmaps=false
+disable_embedded_bitmaps=true
+multichannel_signed_distance_field=false
+msdf_pixel_range=8
+msdf_size=48
+allow_system_fallback=false
+force_autohinter=false
+hinting=0
+subpixel_positioning=0
+oversampling=1.0
+Fallbacks=null
+fallbacks=PackedStringArray()
+Compress=null
+compress=true
+preload=["zh-Hans", "zh-Hant", "ja", "ko"]
+language_support={
+"ja": true,
+"ko": true,
+"zh-Hans": true,
+"zh-Hant": true
+}
+script_support={
+"Hani": true,
+"Hans": true,
+"Hant": true
+}
+opentype_features={}

@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3 uid="uid://building_scene"]
+
+[ext_resource type="Script" path="res://scripts/game/building.gd" id="1_building"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_building"]
+size = Vector2(64, 64)
+
+[node name="Building" type="StaticBody2D"]
+script = ExtResource("1_building")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_building")
