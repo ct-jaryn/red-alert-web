@@ -29,6 +29,23 @@ var _is_selecting: bool = false
 var _unit_groups: Dictionary = {}
 
 func _ready() -> void:
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("""
+			(function() {
+				var c = document.getElementById('canvas');
+				if (c) {
+					c.focus();
+					c.addEventListener('mousedown', function() { c.focus(); });
+					c.addEventListener('touchstart', function() { c.focus(); });
+				}
+				document.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+				document.addEventListener('visibilitychange', function() {
+					if (document.hidden && typeof Godot !== 'undefined') {
+						document.title = '红色警戒 - 已暂停';
+					}
+				});
+			})();
+		""")
 	_setup_nodes()
 	_start_game()
 

@@ -59,6 +59,8 @@ func _process(delta: float) -> void:
 		_is_moving_to = false
 	if _is_dragging:
 		return
+	if OS.has_feature("web"):
+		return
 	var viewport_size = get_viewport_rect().size
 	var mouse_pos = get_viewport().get_mouse_position()
 	if _is_mouse_over_ui(mouse_pos, viewport_size):

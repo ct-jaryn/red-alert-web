@@ -30,6 +30,7 @@ var _tint_rect: ColorRect
 var _facing: float = 0.0
 var _health_bar: ProgressBar
 var _selection_ring: Node2D
+var _health_fill: StyleBoxFlat
 
 enum UnitState { IDLE, MOVING, ATTACKING, HARVESTING, RETURNING_ORE }
 var current_state: int = UnitState.IDLE
@@ -60,12 +61,12 @@ func _setup_health_bar() -> void:
 	_health_bar.max_value = 1.0
 	_health_bar.value = 1.0
 	_health_bar.show_percentage = false
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.2, 0.2, 0.2)
-	_health_bar.add_theme_stylebox_override("background", style)
-	var fill = StyleBoxFlat.new()
-	fill.bg_color = Color(0, 1, 0)
-	_health_bar.add_theme_stylebox_override("fill", fill)
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.2, 0.2, 0.2)
+	_health_bar.add_theme_stylebox_override("background", bg_style)
+	_health_fill = StyleBoxFlat.new()
+	_health_fill.bg_color = Color(0, 1, 0)
+	_health_bar.add_theme_stylebox_override("fill", _health_fill)
 	add_child(_health_bar)
 	_health_bar.visible = false
 
@@ -107,18 +108,16 @@ func _get_player_tint() -> Color:
 		_:
 			return Color(0, 0, 0, 0)
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if _health_bar.visible:
 		_health_bar.value = float(health) / float(max_health)
 		var h_ratio = float(health) / float(max_health)
-		var fill = StyleBoxFlat.new()
 		if h_ratio > 0.6:
-			fill.bg_color = Color(0, 1, 0)
+			_health_fill.bg_color = Color(0, 1, 0)
 		elif h_ratio > 0.3:
-			fill.bg_color = Color(1, 1, 0)
+			_health_fill.bg_color = Color(1, 1, 0)
 		else:
-			fill.bg_color = Color(1, 0, 0)
-		_health_bar.add_theme_stylebox_override("fill", fill)
+			_health_fill.bg_color = Color(1, 0, 0)
 
 func _physics_process(delta: float) -> void:
 	match current_state:

@@ -74,9 +74,16 @@ func _setup_background() -> void:
 
 func _setup_ui() -> void:
 	var center = VBoxContainer.new()
-	center.set_anchors_preset(Control.PRESET_CENTER)
-	center.position = Vector2(_screen_w * 0.25, _screen_h * 0.1)
-	center.size = Vector2(_screen_w * 0.5, _screen_h * 0.8)
+	center.anchor_left = 0.25
+	center.anchor_top = 0.1
+	center.anchor_right = 0.75
+	center.anchor_bottom = 0.9
+	center.offset_left = 0
+	center.offset_top = 0
+	center.offset_right = 0
+	center.offset_bottom = 0
+	center.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	center.grow_vertical = Control.GROW_DIRECTION_BOTH
 	center.alignment = BoxContainer.ALIGNMENT_CENTER
 	add_child(center)
 	var title_container = VBoxContainer.new()
@@ -202,4 +209,7 @@ func _on_settings() -> void:
 	pass
 
 func _on_exit() -> void:
-	get_tree().quit()
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("window.close();")
+	else:
+		get_tree().quit()

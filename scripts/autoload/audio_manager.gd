@@ -20,7 +20,10 @@ func play_sfx(sfx_name: String) -> void:
 		_:
 			pass
 	player.finished.connect(player.queue_free)
-	player.play()
+	if player.stream:
+		player.play()
+	else:
+		player.queue_free()
 
 func set_music_volume(vol: float) -> void:
 	music_volume = clampf(vol, 0.0, 1.0)

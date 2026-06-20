@@ -9,8 +9,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
+    extensions_map = {
+        **http.server.SimpleHTTPRequestHandler.extensions_map,
+        '.wasm': 'application/wasm',
+        '.pck': 'application/octet-stream',
+    }
+
     def end_headers(self):
-        self.send_header('Cross-Origin-Embedder-Policy', 'credentialless')
+        self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Cache-Control', 'no-cache')
