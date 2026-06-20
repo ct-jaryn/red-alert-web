@@ -10,9 +10,13 @@ var _scanline_overlay: ColorRect
 var _bg_particles: Node2D
 var _glow_timer: float = 0.0
 var _particles: Array = []
+var _screen_w: float = 1920.0
+var _screen_h: float = 1080.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	_screen_w = get_viewport_rect().size.x
+	_screen_h = get_viewport_rect().size.y
 	_setup_background()
 	_setup_ui()
 	_setup_animations()
@@ -25,12 +29,12 @@ func _setup_background() -> void:
 	_bg_particles = Node2D.new()
 	_bg_particles.z_index = 1
 	add_child(_bg_particles)
-	for i in range(60):
+	for i in range(80):
 		_particles.append({
-			"pos": Vector2(randf() * 1280, randf() * 720),
-			"speed": randf_range(10, 40),
-			"size": randf_range(1, 3),
-			"alpha": randf_range(0.1, 0.4),
+			"pos": Vector2(randf() * _screen_w, randf() * _screen_h),
+			"speed": randf_range(10, 50),
+			"size": randf_range(1, 3.5),
+			"alpha": randf_range(0.08, 0.35),
 		})
 	_bg_particles.draw.connect(func():
 		for p in _particles:
@@ -54,103 +58,106 @@ func _setup_background() -> void:
 	bottom_bar.color = Color(0.8, 0.1, 0.1)
 	bottom_bar.z_index = 3
 	add_child(bottom_bar)
+	var edge_margin = _screen_w * 0.03
 	var left_accent = ColorRect.new()
-	left_accent.position = Vector2(40, 120)
-	left_accent.size = Vector2(3, 480)
-	left_accent.color = Color(0.6, 0.1, 0.1, 0.5)
+	left_accent.position = Vector2(edge_margin, _screen_h * 0.11)
+	left_accent.size = Vector2(3, _screen_h * 0.78)
+	left_accent.color = Color(0.6, 0.1, 0.1, 0.4)
 	left_accent.z_index = 3
 	add_child(left_accent)
 	var right_accent = ColorRect.new()
-	right_accent.position = Vector2(1237, 120)
-	right_accent.size = Vector2(3, 480)
-	right_accent.color = Color(0.6, 0.1, 0.1, 0.5)
+	right_accent.position = Vector2(_screen_w - edge_margin - 3, _screen_h * 0.11)
+	right_accent.size = Vector2(3, _screen_h * 0.78)
+	right_accent.color = Color(0.6, 0.1, 0.1, 0.4)
 	right_accent.z_index = 3
 	add_child(right_accent)
 
 func _setup_ui() -> void:
 	var center = VBoxContainer.new()
 	center.set_anchors_preset(Control.PRESET_CENTER)
-	center.position = Vector2(340, 100)
-	center.size = Vector2(600, 520)
+	center.position = Vector2(_screen_w * 0.25, _screen_h * 0.1)
+	center.size = Vector2(_screen_w * 0.5, _screen_h * 0.8)
 	center.alignment = BoxContainer.ALIGNMENT_CENTER
 	add_child(center)
 	var title_container = VBoxContainer.new()
-	title_container.add_theme_constant_override("separation", 0)
+	title_container.add_theme_constant_override("separation", 5)
 	center.add_child(title_container)
-	_title_label = FontUtilScript.make_label("", 64, Color(0.9, 0.15, 0.1))
+	_title_label = FontUtilScript.make_label("", int(_screen_h * 0.07), Color(0.9, 0.15, 0.1))
 	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title_label.text = "RED ALERT"
 	title_container.add_child(_title_label)
-	_subtitle_label = FontUtilScript.make_label("", 28, Color(0.95, 0.85, 0.2))
+	_subtitle_label = FontUtilScript.make_label("", int(_screen_h * 0.035), Color(0.95, 0.85, 0.2))
 	_subtitle_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_subtitle_label.text = "红色警戒"
+	_subtitle_label.text = "红 色 警 戒"
 	title_container.add_child(_subtitle_label)
 	var line = HSeparator.new()
-	line.custom_minimum_size = Vector2(0, 20)
+	line.custom_minimum_size = Vector2(0, 30)
 	center.add_child(line)
 	_btn_container = VBoxContainer.new()
-	_btn_container.add_theme_constant_override("separation", 12)
+	_btn_container.add_theme_constant_override("separation", 16)
 	_btn_container.alignment = BoxContainer.ALIGNMENT_CENTER
 	center.add_child(_btn_container)
+	var btn_w = _screen_w * 0.22
+	var btn_h = _screen_h * 0.06
 	var btn_data := [
 		{"text": "新 游 戏", "action": "_on_new_game"},
 		{"text": "游戏设置", "action": "_on_settings"},
 		{"text": "退出游戏", "action": "_on_exit"},
 	]
 	for data in btn_data:
-		var btn = _create_menu_button(data["text"])
+		var btn = _create_menu_button(data["text"], btn_w, btn_h)
 		btn.pressed.connect(Callable(self, data["action"]))
 		_btn_container.add_child(btn)
 	var spacer = Control.new()
-	spacer.custom_minimum_size = Vector2(0, 40)
+	spacer.custom_minimum_size = Vector2(0, _screen_h * 0.05)
 	center.add_child(spacer)
-	var tip = FontUtilScript.make_label("", 12, Color(0.4, 0.35, 0.3))
+	var tip = FontUtilScript.make_label("", 13, Color(0.4, 0.35, 0.3))
 	tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	tip.text = "WASD移动 | 左键选择 | 右键命令 | ESC暂停"
 	center.add_child(tip)
-	_version_label = FontUtilScript.make_label("", 11, Color(0.4, 0.15, 0.1))
+	_version_label = FontUtilScript.make_label("", 12, Color(0.4, 0.15, 0.1))
 	_version_label.text = "v1.0.0 | Godot 4.3"
-	_version_label.position = Vector2(1100, 690)
+	_version_label.position = Vector2(_screen_w - 180, _screen_h - 30)
 	_version_label.z_index = 5
 	add_child(_version_label)
-	var credits = FontUtilScript.make_label("", 11, Color(0.3, 0.25, 0.2))
+	var credits = FontUtilScript.make_label("", 12, Color(0.3, 0.25, 0.2))
 	credits.text = "素材: Elite Command by Chris Vincent (CC-BY 4.0)"
-	credits.position = Vector2(10, 690)
+	credits.position = Vector2(15, _screen_h - 30)
 	credits.z_index = 5
 	add_child(credits)
 
-func _create_menu_button(text: String) -> Button:
+func _create_menu_button(text: String, btn_w: float, btn_h: float) -> Button:
 	var btn = Button.new()
 	btn.text = text
-	btn.custom_minimum_size = Vector2(320, 52)
+	btn.custom_minimum_size = Vector2(btn_w, btn_h)
 	btn.add_theme_font_override("font", FontUtilScript.get_font())
-	btn.add_theme_font_size_override("font_size", 20)
+	btn.add_theme_font_size_override("font_size", int(btn_h * 0.4))
 	var normal_style = StyleBoxFlat.new()
-	normal_style.bg_color = Color(0.15, 0.05, 0.05)
-	normal_style.border_color = Color(0.6, 0.15, 0.1)
+	normal_style.bg_color = Color(0.12, 0.04, 0.04)
+	normal_style.border_color = Color(0.55, 0.12, 0.08)
 	normal_style.border_width_bottom = 2
 	normal_style.border_width_top = 2
 	normal_style.border_width_left = 2
 	normal_style.border_width_right = 2
-	normal_style.corner_radius_top_left = 2
-	normal_style.corner_radius_top_right = 2
-	normal_style.corner_radius_bottom_left = 2
-	normal_style.corner_radius_bottom_right = 2
+	normal_style.corner_radius_top_left = 3
+	normal_style.corner_radius_top_right = 3
+	normal_style.corner_radius_bottom_left = 3
+	normal_style.corner_radius_bottom_right = 3
 	btn.add_theme_stylebox_override("normal", normal_style)
 	var hover_style = StyleBoxFlat.new()
-	hover_style.bg_color = Color(0.3, 0.08, 0.08)
-	hover_style.border_color = Color(0.9, 0.2, 0.15)
+	hover_style.bg_color = Color(0.25, 0.06, 0.06)
+	hover_style.border_color = Color(0.85, 0.2, 0.12)
 	hover_style.border_width_bottom = 2
 	hover_style.border_width_top = 2
 	hover_style.border_width_left = 2
 	hover_style.border_width_right = 2
-	hover_style.corner_radius_top_left = 2
-	hover_style.corner_radius_top_right = 2
-	hover_style.corner_radius_bottom_left = 2
-	hover_style.corner_radius_bottom_right = 2
+	hover_style.corner_radius_top_left = 3
+	hover_style.corner_radius_top_right = 3
+	hover_style.corner_radius_bottom_left = 3
+	hover_style.corner_radius_bottom_right = 3
 	btn.add_theme_stylebox_override("hover", hover_style)
 	var pressed_style = StyleBoxFlat.new()
-	pressed_style.bg_color = Color(0.5, 0.1, 0.1)
+	pressed_style.bg_color = Color(0.45, 0.08, 0.08)
 	pressed_style.border_color = Color(1, 0.3, 0.2)
 	pressed_style.border_width_bottom = 2
 	pressed_style.border_width_top = 2
@@ -182,8 +189,8 @@ func _process(delta: float) -> void:
 		p["pos"].y -= p["speed"] * delta
 		p["pos"].x += sin(_glow_timer * 0.5 + p["pos"].x * 0.01) * 0.3
 		if p["pos"].y < -10:
-			p["pos"].y = 730
-			p["pos"].x = randf() * 1280
+			p["pos"].y = _screen_h + 10
+			p["pos"].x = randf() * _screen_w
 	_bg_particles.queue_redraw()
 	var glow = 0.15 + sin(_glow_timer * 2.0) * 0.05
 	_title_label.add_theme_color_override("font_color", Color(0.9, 0.15 + glow * 0.3, 0.1))

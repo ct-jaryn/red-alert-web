@@ -78,11 +78,18 @@ func _process(delta: float) -> void:
 		_is_moving_to = false
 
 func _is_mouse_over_ui(mouse_pos: Vector2, viewport_size: Vector2) -> bool:
-	if mouse_pos.x > viewport_size.x - 210:
+	var right_panel = viewport_size.x - 240
+	var minimap_left = 15
+	var minimap_top = viewport_size.y - 220
+	var minimap_right = 225
+	var minimap_bottom = viewport_size.y - 110
+	var info_left = 15
+	var info_top = viewport_size.y - 120
+	if mouse_pos.x > right_panel:
 		return true
-	if mouse_pos.x < 200 and mouse_pos.y > 460:
+	if mouse_pos.x < minimap_right and mouse_pos.y > minimap_top and mouse_pos.y < minimap_bottom:
 		return true
-	if mouse_pos.x < 320 and mouse_pos.y > 610:
+	if mouse_pos.x < 360 and mouse_pos.y > info_top:
 		return true
 	return false
 

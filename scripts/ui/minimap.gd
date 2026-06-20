@@ -18,14 +18,16 @@ var _texture: ImageTexture
 var _border: ReferenceRect
 
 func _ready() -> void:
+	minimap_size = size
+	if minimap_size.x < 50:
+		minimap_size = Vector2(200, 150)
 	custom_minimum_size = minimap_size
-	size = minimap_size
 	_texture_rect = TextureRect.new()
-	_texture_rect.size = minimap_size
+	_texture_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	add_child(_texture_rect)
 	_border = ReferenceRect.new()
-	_border.size = minimap_size
+	_border.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_border.border_color = Color(0.6, 0.6, 0.6)
 	_border.border_width = 2.0
 	_border.editor_only = false

@@ -27,12 +27,21 @@ func _ready() -> void:
 	GameManager.building_placed.connect(_on_building_placed)
 
 func _setup_ui() -> void:
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0, 0, 0, 0.75)
+	panel_style.border_color = Color(0.4, 0.12, 0.08)
+	panel_style.border_width_bottom = 1
+	panel_style.border_width_top = 1
+	panel_style.border_width_left = 1
+	panel_style.border_width_right = 1
+	add_theme_stylebox_override("panel", panel_style)
 	var main_vbox = VBoxContainer.new()
+	main_vbox.add_theme_constant_override("separation", 4)
 	add_child(main_vbox)
-	var title = FontUtilScript.make_label("建造", 16)
+	var title = FontUtilScript.make_label("建 造", 16, Color(0.9, 0.15, 0.1))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	main_vbox.add_child(title)
-	_progress_label = FontUtilScript.make_label("空闲", 11, Color(0.7, 0.7, 0.7))
+	_progress_label = FontUtilScript.make_label("空闲", 11, Color(0.6, 0.6, 0.6))
 	main_vbox.add_child(_progress_label)
 	_progress_bar = ProgressBar.new()
 	_progress_bar.max_value = 1.0

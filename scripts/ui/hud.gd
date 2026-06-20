@@ -29,27 +29,35 @@ func _ready() -> void:
 
 func _setup_ui() -> void:
 	var top_bar = HBoxContainer.new()
-	top_bar.position = Vector2(10, 10)
-	top_bar.size = Vector2(500, 30)
+	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	top_bar.position = Vector2(15, 10)
+	top_bar.size = Vector2(600, 30)
 	add_child(top_bar)
-	_credits_label = FontUtilScript.make_label("金币: 5000", 16, Color(1, 0.85, 0))
+	_credits_label = FontUtilScript.make_label("金币: 5000", 18, Color(1, 0.85, 0))
 	top_bar.add_child(_credits_label)
 	var spacer = Control.new()
-	spacer.custom_minimum_size = Vector2(30, 0)
+	spacer.custom_minimum_size = Vector2(40, 0)
 	top_bar.add_child(spacer)
-	_power_label = FontUtilScript.make_label("电力: 0/0", 16, Color(0.5, 1, 0.5))
+	_power_label = FontUtilScript.make_label("电力: 0/0", 18, Color(0.5, 1, 0.5))
 	top_bar.add_child(_power_label)
 	spacer = Control.new()
-	spacer.custom_minimum_size = Vector2(30, 0)
+	spacer.custom_minimum_size = Vector2(40, 0)
 	top_bar.add_child(spacer)
-	_fps_label = FontUtilScript.make_label("帧率: 60", 12, Color(0.7, 0.7, 0.7))
+	_fps_label = FontUtilScript.make_label("帧率: 60", 13, Color(0.7, 0.7, 0.7))
 	top_bar.add_child(_fps_label)
 
 	_info_panel = PanelContainer.new()
-	_info_panel.position = Vector2(10, 620)
-	_info_panel.size = Vector2(300, 90)
+	_info_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_info_panel.anchor_left = 0.0
+	_info_panel.anchor_top = 1.0
+	_info_panel.anchor_right = 0.0
+	_info_panel.anchor_bottom = 1.0
+	_info_panel.offset_left = 15
+	_info_panel.offset_top = -110
+	_info_panel.offset_right = 350
+	_info_panel.offset_bottom = -10
 	var info_style = StyleBoxFlat.new()
-	info_style.bg_color = Color(0, 0, 0, 0.7)
+	info_style.bg_color = Color(0, 0, 0, 0.75)
 	info_style.border_color = Color(0.5, 0.5, 0.5)
 	info_style.border_width_bottom = 1
 	info_style.border_width_top = 1
@@ -57,26 +65,38 @@ func _setup_ui() -> void:
 	info_style.border_width_right = 1
 	_info_panel.add_theme_stylebox_override("panel", info_style)
 	add_child(_info_panel)
-	_info_label = FontUtilScript.make_label("选择单位或建筑", 12)
+	_info_label = FontUtilScript.make_label("选择单位或建筑", 13)
 	_info_panel.add_child(_info_label)
 
-	_notification_label = FontUtilScript.make_label("", 14, Color(0, 1, 0.5))
-	_notification_label.position = Vector2(400, 50)
-	_notification_label.size = Vector2(480, 30)
+	_notification_label = FontUtilScript.make_label("", 16, Color(0, 1, 0.5))
+	_notification_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_notification_label.position = Vector2(500, 55)
+	_notification_label.size = Vector2(600, 35)
 	_notification_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_notification_label.visible = false
 	add_child(_notification_label)
 
 	_build_panel = BuildPanelScript.new()
-	_build_panel.position = Vector2(1070, 10)
-	_build_panel.size = Vector2(200, 700)
+	_build_panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	_build_panel.anchor_left = 1.0
+	_build_panel.anchor_right = 1.0
+	_build_panel.offset_left = -230
+	_build_panel.offset_top = 10
+	_build_panel.offset_right = -10
+	_build_panel.offset_bottom = -10
 	_build_panel.player_id = 0
 	add_child(_build_panel)
 
 	_minimap = MinimapScript.new()
-	_minimap.position = Vector2(10, 470)
-	_minimap.size = Vector2(180, 140)
-	_minimap.minimap_clicked.connect(_on_minimap_clicked)
+	_minimap.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_minimap.anchor_left = 0.0
+	_minimap.anchor_top = 1.0
+	_minimap.anchor_right = 0.0
+	_minimap.anchor_bottom = 1.0
+	_minimap.offset_left = 15
+	_minimap.offset_top = -220
+	_minimap.offset_right = 215
+	_minimap.offset_bottom = -120
 	add_child(_minimap)
 
 	_setup_pause_panel()
@@ -85,12 +105,15 @@ func _setup_ui() -> void:
 func _setup_pause_panel() -> void:
 	_pause_panel = PanelContainer.new()
 	_pause_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_pause_panel.size = Vector2(300, 150)
-	_pause_panel.position = Vector2(490, 285)
+	_pause_panel.size = Vector2(320, 160)
+	_pause_panel.offset_left = -160
+	_pause_panel.offset_top = -80
+	_pause_panel.offset_right = 160
+	_pause_panel.offset_bottom = 80
 	_pause_panel.visible = false
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0, 0, 0, 0.85)
-	style.border_color = Color(1, 1, 1)
+	style.bg_color = Color(0, 0, 0, 0.9)
+	style.border_color = Color(0.8, 0.2, 0.15)
 	style.border_width_bottom = 2
 	style.border_width_top = 2
 	style.border_width_left = 2
@@ -100,21 +123,29 @@ func _setup_pause_panel() -> void:
 	var vbox = VBoxContainer.new()
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	_pause_panel.add_child(vbox)
-	var label = FontUtilScript.make_label("暂停", 24, Color(1, 1, 1))
+	var label = FontUtilScript.make_label("暂 停", 28, Color(0.9, 0.15, 0.1))
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(label)
 	var resume_btn = FontUtilScript.make_button("继续游戏 (ESC)")
+	resume_btn.custom_minimum_size = Vector2(200, 40)
 	resume_btn.pressed.connect(func(): GameManager.toggle_pause())
 	vbox.add_child(resume_btn)
+	var menu_btn = FontUtilScript.make_button("返回主菜单")
+	menu_btn.custom_minimum_size = Vector2(200, 40)
+	menu_btn.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn"))
+	vbox.add_child(menu_btn)
 
 func _setup_game_over_panel() -> void:
 	_game_over_panel = PanelContainer.new()
 	_game_over_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_game_over_panel.size = Vector2(400, 200)
-	_game_over_panel.position = Vector2(440, 260)
+	_game_over_panel.size = Vector2(450, 220)
+	_game_over_panel.offset_left = -225
+	_game_over_panel.offset_top = -110
+	_game_over_panel.offset_right = 225
+	_game_over_panel.offset_bottom = 110
 	_game_over_panel.visible = false
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0, 0, 0, 0.9)
+	style.bg_color = Color(0, 0, 0, 0.92)
 	style.border_color = Color(1, 0.8, 0)
 	style.border_width_bottom = 3
 	style.border_width_top = 3
@@ -125,15 +156,22 @@ func _setup_game_over_panel() -> void:
 	var vbox = VBoxContainer.new()
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	_game_over_panel.add_child(vbox)
-	var label = FontUtilScript.make_label("胜利", 32, Color(1, 0.85, 0))
+	var label = FontUtilScript.make_label("胜利", 36, Color(1, 0.85, 0))
 	label.name = "ResultLabel"
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(label)
 	var restart_btn = FontUtilScript.make_button("重新开始")
+	restart_btn.custom_minimum_size = Vector2(200, 45)
 	restart_btn.pressed.connect(func():
-		get_tree().reload_current_scene()
+		get_tree().change_scene_to_file("res://scenes/game/main.tscn")
 	)
 	vbox.add_child(restart_btn)
+	var menu_btn = FontUtilScript.make_button("返回主菜单")
+	menu_btn.custom_minimum_size = Vector2(200, 45)
+	menu_btn.pressed.connect(func():
+		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
+	)
+	vbox.add_child(menu_btn)
 
 func _show_notification(text: String, duration: float = 3.0) -> void:
 	_notification_label.text = text
