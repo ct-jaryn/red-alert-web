@@ -6,6 +6,9 @@ static var _font: Font = null
 static func get_font() -> Font:
 	if _font == null:
 		_font = load("res://assets/simhei.ttf")
+		if _font == null:
+			push_warning("FontUtil: 无法加载字体 res://assets/simhei.ttf，使用默认字体")
+			_font = ThemeDB.fallback_font
 	return _font
 
 static func apply_to_control(control: Control) -> void:

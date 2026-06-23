@@ -36,6 +36,9 @@ func _create_ghost() -> void:
 	_ghost = Node2D.new()
 	add_child(_ghost)
 	var info = UnitData.get_unit_info(current_building_id)
+	if info.is_empty():
+		cancel_placement()
+		return
 	var size_cells = info.get("size", Vector2i(1, 1))
 	var w = size_cells.x * MapData.TILE_SIZE
 	var h = size_cells.y * MapData.TILE_SIZE
@@ -75,21 +78,27 @@ func _process(_delta: float) -> void:
 		return
 	_ghost.global_position = _snap_to_grid(get_global_mouse_position())
 	var valid = _can_place_at(_ghost.global_position)
-	var rect = _ghost.get_child(0) as ColorRect
-	if rect:
-		rect.color = _valid_color if valid else _invalid_color
-	var border = _ghost.get_child(1) as ReferenceRect
-	if border:
-		border.border_color = Color(0, 1, 0, 0.6) if valid else Color(1, 0, 0, 0.6)
+	# 更新颜色 — 适配 ColorRect（无纹理）和 TextureRect（有纹理）
+	var child0 = _ghost.get_child(0)
+	if child0 is ColorRect:
+		child0.color = _valid_color if valid else _invalid_color
+	elif child0 is TextureRect:
+		child0.modulate = Color(1, 1, 1, 0.6) if valid else Color(1, 0.3, 0.3, 0.6)
+	# 更新边框颜色
+	for child in _ghost.get_children():
+		if child is ReferenceRect:
+			child.border_color = Color(0, 1, 0, 0.6) if valid else Color(1, 0, 0, 0.6)
+			break
 
 func _snap_to_grid(pos: Vector2) -> Vector2:
 	var info = UnitData.get_unit_info(current_building_id)
 	var size_cells = info.get("size", Vector2i(1, 1))
 	var snapped_x = snapped(pos.x, MapData.TILE_SIZE)
 	var snapped_y = snapped(pos.y, MapData.TILE_SIZE)
-	if size_cells.x % 2 == 0:
+	# 奇数尺寸建筑中心对齐到瓦片中心；偶数尺寸对齐到瓦片边界
+	if size_cells.x % 2 == 1:
 		snapped_x += MapData.TILE_SIZE / 2.0
-	if size_cells.y % 2 == 0:
+	if size_cells.y % 2 == 1:
 		snapped_y += MapData.TILE_SIZE / 2.0
 	return Vector2(snapped_x, snapped_y)
 
@@ -112,16 +121,19 @@ func _can_place_at(pos: Vector2) -> bool:
 	var size_cells = info.get("size", Vector2i(1, 1))
 	var half_w = size_cells.x * MapData.TILE_SIZE / 2.0
 	var half_h = size_cells.y * MapData.TILE_SIZE / 2.0
-	var corners = [
-		pos + Vector2(-half_w, -half_h),
-		pos + Vector2(half_w, -half_h),
-		pos + Vector2(-half_w, half_h),
-		pos + Vector2(half_w, half_h),
-	]
-	for corner in corners:
-		var terrain = GameManager.get_terrain_at(corner)
-		if not MapData.is_passable(terrain):
-			return false
+	# 遍历建筑覆盖的所有瓦片，确保全部可通过
+	var min_tile_x := int(floor((pos.x - half_w) / MapData.TILE_SIZE))
+	var max_tile_x := int(floor((pos.x + half_w - 0.001) / MapData.TILE_SIZE))
+	var min_tile_y := int(floor((pos.y - half_h) / MapData.TILE_SIZE))
+	var max_tile_y := int(floor((pos.y + half_h - 0.001) / MapData.TILE_SIZE))
+	for tx in range(min_tile_x, max_tile_x + 1):
+		for ty in range(min_tile_y, max_tile_y + 1):
+			var check_pos := Vector2(
+				tx * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0,
+				ty * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0
+			)
+			if not MapData.is_passable(GameManager.get_terrain_at(check_pos)):
+				return false
 	var my_rect = Rect2(
 		pos - Vector2(half_w, half_h),
 		Vector2(size_cells.x * MapData.TILE_SIZE, size_cells.y * MapData.TILE_SIZE)

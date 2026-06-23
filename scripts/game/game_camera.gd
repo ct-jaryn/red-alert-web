@@ -1,6 +1,8 @@
 class_name GameCamera
 extends Camera2D
 
+const MapData = preload("res://scripts/data/map_data.gd")
+
 @export var move_speed: float = 400.0
 @export var edge_scroll_speed: float = 300.0
 @export var edge_scroll_margin: int = 30
@@ -18,6 +20,10 @@ func _ready() -> void:
 	position_smoothing_enabled = true
 	position_smoothing_speed = 8.0
 	_target_position = position
+	get_viewport().size_changed.connect(_on_viewport_size_changed)
+
+func _on_viewport_size_changed() -> void:
+	_clamp_position()
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -57,27 +63,24 @@ func _process(delta: float) -> void:
 		position += move_dir.normalized() * move_speed * delta / zoom.x
 		_target_position = position
 		_is_moving_to = false
-	if _is_dragging:
-		return
-	if OS.has_feature("web"):
-		return
-	var viewport_size = get_viewport_rect().size
-	var mouse_pos = get_viewport().get_mouse_position()
-	if _is_mouse_over_ui(mouse_pos, viewport_size):
-		return
-	var edge_dir = Vector2.ZERO
-	if mouse_pos.x < edge_scroll_margin:
-		edge_dir.x -= 1
-	elif mouse_pos.x > viewport_size.x - edge_scroll_margin:
-		edge_dir.x += 1
-	if mouse_pos.y < edge_scroll_margin:
-		edge_dir.y -= 1
-	elif mouse_pos.y > viewport_size.y - edge_scroll_margin:
-		edge_dir.y += 1
-	if edge_dir != Vector2.ZERO:
-		position += edge_dir.normalized() * edge_scroll_speed * delta / zoom.x
-		_target_position = position
-		_is_moving_to = false
+	if not _is_dragging and not OS.has_feature("web"):
+		var viewport_size: Vector2 = get_viewport_rect().size
+		var mouse_pos = get_viewport().get_mouse_position()
+		if not _is_mouse_over_ui(mouse_pos, viewport_size):
+			var edge_dir = Vector2.ZERO
+			if mouse_pos.x < edge_scroll_margin:
+				edge_dir.x -= 1
+			elif mouse_pos.x > viewport_size.x - edge_scroll_margin:
+				edge_dir.x += 1
+			if mouse_pos.y < edge_scroll_margin:
+				edge_dir.y -= 1
+			elif mouse_pos.y > viewport_size.y - edge_scroll_margin:
+				edge_dir.y += 1
+			if edge_dir != Vector2.ZERO:
+				position += edge_dir.normalized() * edge_scroll_speed * delta / zoom.x
+				_target_position = position
+				_is_moving_to = false
+	_clamp_position()
 
 func _is_mouse_over_ui(mouse_pos: Vector2, viewport_size: Vector2) -> bool:
 	var right_panel = viewport_size.x - 240
@@ -96,9 +99,28 @@ func _is_mouse_over_ui(mouse_pos: Vector2, viewport_size: Vector2) -> bool:
 	return false
 
 func move_to_position(world_pos: Vector2) -> void:
-	_target_position = world_pos
+	_target_position = _clamp_target(world_pos)
 	_is_moving_to = true
 
+func _clamp_position() -> void:
+	position = _clamp_target(position)
+	_target_position = _clamp_target(_target_position)
+
+func _clamp_target(pos: Vector2) -> Vector2:
+	var map_w := GameManager.map_width * MapData.TILE_SIZE
+	var map_h := GameManager.map_height * MapData.TILE_SIZE
+	if map_w <= 0 or map_h <= 0:
+		return pos
+	var viewport_size: Vector2 = get_viewport_rect().size / zoom
+	var half_w: float = viewport_size.x / 2.0
+	var half_h: float = viewport_size.y / 2.0
+	# 允许镜头中心超出地图边界最多半屏，既能让基地在边角时居中，也防止滚太远
+	var min_x: float = -half_w
+	var max_x: float = map_w + half_w
+	var min_y: float = -half_h
+	var max_y: float = map_h + half_h
+	return Vector2(clampf(pos.x, min_x, max_x), clampf(pos.y, min_y, max_y))
+
 func get_visible_rect() -> Rect2:
-	var viewport_size = get_viewport_rect().size / zoom
+	var viewport_size: Vector2 = get_viewport_rect().size / zoom
 	return Rect2(position - viewport_size / 2.0, viewport_size)

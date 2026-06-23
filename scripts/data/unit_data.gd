@@ -248,7 +248,7 @@ static func get_unit_info(unit_id: String) -> Dictionary:
 		return units[unit_id]
 	return {}
 
-static func can_build(unit_id: String, built_buildings: Array) -> bool:
+static func can_build(unit_id: String, built_buildings) -> bool:
 	var info = get_unit_info(unit_id)
 	if info.is_empty():
 		return false

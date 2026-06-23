@@ -1,17 +1,19 @@
 extends Area2D
 
-var target: Node = null
+var target: Node2D = null
 var damage: int = 10
 var speed: float = 300.0
 var player_id: int = 0
+var attacker: Node2D = null
 var _direction: Vector2 = Vector2.ZERO
 
-static func create(from_pos: Vector2, target_node: Node, dmg: int, owner_id: int) -> Area2D:
-	var p = load("res://scripts/game/projectile.gd").new()
-	p.global_position = from_pos
+static func create(from_pos: Vector2, target_node: Node2D, dmg: int, owner_id: int, p_attacker: Node2D = null) -> Area2D:
+	var p = preload("res://scripts/game/projectile.gd").new()
+	p.position = from_pos
 	p.target = target_node
 	p.damage = dmg
 	p.player_id = owner_id
+	p.attacker = p_attacker
 	return p
 
 func _ready() -> void:
@@ -28,19 +30,24 @@ func _ready() -> void:
 	collision_layer = 0
 	collision_mask = 0
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if not is_instance_valid(target):
 		_spawn_hit_effect()
 		queue_free()
 		return
-	_direction = (target.global_position - global_position).normalized()
-	global_position += _direction * speed * delta
-	if global_position.distance_to(target.global_position) < 10.0:
+	var target_pos := target.global_position
+	_direction = (target_pos - global_position).normalized()
+	var step := speed * delta
+	var dist := global_position.distance_to(target_pos)
+	if dist <= step or dist < 10.0:
+		global_position = target_pos
 		_hit()
+	else:
+		global_position += _direction * step
 
 func _hit() -> void:
 	if is_instance_valid(target) and target.has_method("take_damage"):
-		target.take_damage(damage)
+		target.take_damage(damage, attacker)
 	_spawn_hit_effect()
 	queue_free()
 

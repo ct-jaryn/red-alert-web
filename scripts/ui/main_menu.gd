@@ -203,6 +203,8 @@ func _process(delta: float) -> void:
 	_title_label.add_theme_color_override("font_color", Color(0.9, 0.15 + glow * 0.3, 0.1))
 
 func _on_new_game() -> void:
+	GameManager.reset()
+	get_tree().paused = false
 	get_tree().change_scene_to_file("res://scenes/game/main.tscn")
 
 func _on_settings() -> void:

@@ -6,16 +6,17 @@ const MapData = preload("res://scripts/data/map_data.gd")
 var game_map: Array = []
 var map_width: int = 0
 var map_height: int = 0
-var _tile_cache: Dictionary = {}
-
-func _ready() -> void:
-	pass
 
 func setup_map(map: Array) -> void:
+	if map.is_empty() or map[0].is_empty():
+		game_map = []
+		map_width = 0
+		map_height = 0
+		push_warning("MapRenderer.setup_map: 收到空地图")
+		return
 	game_map = map
 	map_height = map.size()
-	map_width = map[0].size() if map_height > 0 else 0
-	_tile_cache.clear()
+	map_width = map[0].size()
 	queue_redraw()
 
 func _draw() -> void:
@@ -65,7 +66,6 @@ func _draw_tile(x: int, y: int) -> void:
 		)
 
 func update_terrain_at(world_pos: Vector2) -> void:
-	var tx = int(world_pos.x / MapData.TILE_SIZE)
-	var ty = int(world_pos.y / MapData.TILE_SIZE)
-	if tx >= 0 and tx < map_width and ty >= 0 and ty < map_height:
+	var tile = MapData.world_to_tile(world_pos)
+	if tile.x >= 0 and tile.x < map_width and tile.y >= 0 and tile.y < map_height:
 		queue_redraw()

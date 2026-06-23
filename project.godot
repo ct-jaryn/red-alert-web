@@ -20,6 +20,7 @@ config/icon="res://icon.svg"
 GameManager="*res://scripts/autoload/game_manager.gd"
 UnitRegistry="*res://scripts/autoload/unit_registry.gd"
 AudioManager="*res://scripts/autoload/audio_manager.gd"
+FontSetup="*res://scripts/autoload/font_setup.gd"
 
 [gui]
 
@@ -27,8 +28,9 @@ theme/custom_font_size=14
 
 [display]
 
-window/size/viewport_width=1920
-window/size/viewport_height=1080
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/initial_position=1
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 

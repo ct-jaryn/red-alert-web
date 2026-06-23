@@ -34,8 +34,10 @@ static func get_texture(id: String) -> Texture2D:
 	elif unit_sprites.has(id):
 		path = unit_sprites[id]
 	if path != "":
-		var tex = load(path)
+		var tex = load(path) as Texture2D
 		if tex:
 			_cache[id] = tex
 			return tex
+		else:
+			push_warning("SpriteUtil: 无法加载纹理 %s -> %s" % [id, path])
 	return null

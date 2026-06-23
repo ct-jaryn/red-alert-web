@@ -5,8 +5,8 @@ const UnitData = preload("res://scripts/data/unit_data.gd")
 const ProjectileScript = preload("res://scripts/game/projectile.gd")
 const SpriteUtilScript = preload("res://scripts/ui/sprite_util.gd")
 
-@export var unit_id: String = ""
-@export var player_id: int = 0
+var unit_id: String = ""
+var player_id: int = 0
 
 var health: int = 100
 var max_health: int = 100
@@ -17,7 +17,7 @@ var attack_damage: int = 10
 var attack_range: float = 120.0
 var attack_cooldown: float = 0.5
 var _attack_timer: float = 0.0
-var _current_target: Node = null
+var _current_target: Node2D = null
 var _move_target: Vector2 = Vector2.ZERO
 var _is_moving: bool = false
 var harvest_capacity: int = 0
@@ -83,7 +83,7 @@ func _setup_unit_visuals() -> void:
 	if tex:
 		_sprite_rect.texture = tex
 	add_child(_sprite_rect)
-	var tint_color = _get_player_tint()
+	var tint_color = MapData.get_player_tint(player_id)
 	_tint_rect = ColorRect.new()
 	_tint_rect.size = sz
 	_tint_rect.position = -sz / 2.0
@@ -99,19 +99,10 @@ func _setup_unit_visuals() -> void:
 		)
 	)
 
-func _get_player_tint() -> Color:
-	match player_id:
-		0:
-			return Color(0.2, 0.4, 1, 0.3)
-		1:
-			return Color(1, 0.2, 0.2, 0.3)
-		_:
-			return Color(0, 0, 0, 0)
-
 func _process(_delta: float) -> void:
-	if _health_bar.visible:
-		_health_bar.value = float(health) / float(max_health)
+	if _health_bar.visible and max_health > 0:
 		var h_ratio = float(health) / float(max_health)
+		_health_bar.value = h_ratio
 		if h_ratio > 0.6:
 			_health_fill.bg_color = Color(0, 1, 0)
 		elif h_ratio > 0.3:
@@ -138,7 +129,7 @@ func _process_idle(_delta: float) -> void:
 		if nearest_ore != Vector2.ZERO:
 			_move_target = nearest_ore
 			_is_moving = true
-			current_state = UnitState.HARVESTING
+			current_state = UnitState.MOVING
 			return
 	if is_instance_valid(_current_target):
 		var dist = global_position.distance_to(_current_target.global_position)
@@ -164,6 +155,11 @@ func _process_moving(_delta: float) -> void:
 			current_state = UnitState.IDLE
 		return
 	var terrain = GameManager.get_terrain_at(global_position)
+	if not MapData.is_passable(terrain):
+		_is_moving = false
+		velocity = Vector2.ZERO
+		current_state = UnitState.IDLE
+		return
 	var cost = MapData.get_move_cost(terrain)
 	velocity = dir * (speed / cost)
 	_facing = dir.angle()
@@ -203,6 +199,8 @@ func _process_harvesting(delta: float) -> void:
 			var main = get_tree().current_scene
 			if main and main.has_node("Effects"):
 				main.get_node("Effects").create_ore_harvest_effect(global_position)
+			if main and main.has_node("MapRenderer"):
+				main.get_node("MapRenderer").update_terrain_at(global_position)
 		else:
 			var nearest_ore = _find_nearest_ore()
 			if nearest_ore != Vector2.ZERO:
@@ -228,7 +226,7 @@ func _process_returning_ore(_delta: float) -> void:
 		if nearest != Vector2.ZERO:
 			_move_target = nearest
 			_is_moving = true
-			current_state = UnitState.HARVESTING
+			current_state = UnitState.MOVING
 		else:
 			current_state = UnitState.IDLE
 		return
@@ -260,15 +258,26 @@ func _find_refinery() -> Node:
 	return best
 
 func _find_nearest_ore() -> Vector2:
-	var base_pos = global_position
+	# 优先以当前位置为起点搜索，避免舍近求远
+	var base_tile := MapData.world_to_tile(global_position)
 	if _home_refinery and is_instance_valid(_home_refinery):
-		base_pos = _home_refinery.global_position
-	for r in range(1, 4):
-		var radius = 200.0 * r
-		for angle_step in range(0, 360, 20):
-			var check_pos = base_pos + Vector2.from_angle(deg_to_rad(angle_step)) * radius
-			if GameManager.is_ore_at(check_pos):
-				return check_pos
+		base_tile = MapData.world_to_tile(_home_refinery.global_position)
+	# 先检查脚下
+	if GameManager.is_ore_at(global_position):
+		return global_position
+	for radius in range(1, 25):
+		for dx in range(-radius, radius + 1):
+			for dy in range(-radius, radius + 1):
+				if abs(dx) != radius and abs(dy) != radius:
+					continue
+				var tile := base_tile + Vector2i(dx, dy)
+				if tile.x < 0 or tile.x >= GameManager.map_width or tile.y < 0 or tile.y >= GameManager.map_height:
+					continue
+				if GameManager.game_map[tile.y][tile.x] == MapData.TerrainType.ORE:
+					return Vector2(
+						tile.x * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0,
+						tile.y * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0
+					)
 	return Vector2.ZERO
 
 func _check_attack_opportunity() -> void:
@@ -277,9 +286,11 @@ func _check_attack_opportunity() -> void:
 		_current_target = enemy
 		current_state = UnitState.ATTACKING
 
-func _fire_at(target: Node) -> void:
-	var proj = ProjectileScript.create(global_position, target, attack_damage, player_id)
-	get_tree().current_scene.add_child(proj)
+func _fire_at(target: Node2D) -> void:
+	var proj = ProjectileScript.create(global_position, target, attack_damage, player_id, self)
+	var scene = get_tree().current_scene
+	if scene:
+		scene.add_child(proj)
 
 func take_damage(amount: int, _attacker: Node = null) -> void:
 	var actual = maxi(1, amount - armor)
@@ -291,9 +302,6 @@ func take_damage(amount: int, _attacker: Node = null) -> void:
 		main.get_node("Effects").create_hit_effect(global_position)
 	if health <= 0:
 		die()
-
-func heal(amount: int) -> void:
-	health = mini(health + amount, max_health)
 
 func die() -> void:
 	var main = get_tree().current_scene
@@ -321,12 +329,13 @@ func move_to(pos: Vector2) -> void:
 	_move_target = pos
 	_is_moving = true
 	_current_target = null
-	if harvest_capacity > 0 and GameManager.is_ore_at(pos):
-		current_state = UnitState.HARVESTING
-	else:
-		current_state = UnitState.MOVING
+	current_state = UnitState.MOVING
 
-func attack_target(target: Node) -> void:
+func attack_target(target: Node2D) -> void:
+	if attack_damage <= 0:
+		# 无攻击能力的单位（工程师、采矿车等）执行移动到目标位置
+		move_to(target.global_position)
+		return
 	_current_target = target
 	current_state = UnitState.ATTACKING
 
@@ -337,4 +346,4 @@ func set_harvest_target(refinery: Node) -> void:
 		if nearest_ore != Vector2.ZERO:
 			_move_target = nearest_ore
 			_is_moving = true
-			current_state = UnitState.HARVESTING
+			current_state = UnitState.MOVING

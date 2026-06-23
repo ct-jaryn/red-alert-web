@@ -71,7 +71,6 @@ func _add_particle(pos: Vector2, vel: Vector2, color: Color, lifetime: float, si
 		"max_life": lifetime,
 		"size": size,
 	})
-	queue_redraw()
 
 func _process(delta: float) -> void:
 	if _particles.is_empty():

@@ -13,12 +13,15 @@ var _info_label: Label
 var _build_panel: Control
 var _minimap: Control
 var _pause_panel: PanelContainer
+var _resume_btn: Button
 var _game_over_panel: PanelContainer
 var _notification_label: Label
 var _notification_timer: float = 0.0
+var _fps_update_timer: float = 0.0
 
 func _ready() -> void:
 	layer = 10
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_setup_ui()
 	GameManager.credits_changed.connect(_on_credits_changed)
 	GameManager.power_changed.connect(_on_power_changed)
@@ -98,9 +101,13 @@ func _setup_ui() -> void:
 	_minimap.offset_right = 215
 	_minimap.offset_bottom = -120
 	add_child(_minimap)
+	_minimap.minimap_clicked.connect(_on_minimap_clicked)
 
 	_setup_pause_panel()
 	_setup_game_over_panel()
+
+func setup_minimap(map: Array) -> void:
+	_minimap.setup_map(map)
 
 func _setup_pause_panel() -> void:
 	_pause_panel = PanelContainer.new()
@@ -111,6 +118,7 @@ func _setup_pause_panel() -> void:
 	_pause_panel.offset_right = 160
 	_pause_panel.offset_bottom = 80
 	_pause_panel.visible = false
+	_pause_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style = StyleBoxFlat.new()
 	style.bg_color = Color(0, 0, 0, 0.9)
 	style.border_color = Color(0.8, 0.2, 0.15)
@@ -126,13 +134,17 @@ func _setup_pause_panel() -> void:
 	var label = FontUtilScript.make_label("暂 停", 28, Color(0.9, 0.15, 0.1))
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(label)
-	var resume_btn = FontUtilScript.make_button("继续游戏 (ESC)")
-	resume_btn.custom_minimum_size = Vector2(200, 40)
-	resume_btn.pressed.connect(func(): GameManager.toggle_pause())
-	vbox.add_child(resume_btn)
+	_resume_btn = FontUtilScript.make_button("继续游戏 (ESC)")
+	_resume_btn.custom_minimum_size = Vector2(200, 40)
+	_resume_btn.pressed.connect(func(): GameManager.toggle_pause())
+	vbox.add_child(_resume_btn)
 	var menu_btn = FontUtilScript.make_button("返回主菜单")
 	menu_btn.custom_minimum_size = Vector2(200, 40)
-	menu_btn.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn"))
+	menu_btn.pressed.connect(func():
+		GameManager.reset()
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
+	)
 	vbox.add_child(menu_btn)
 
 func _setup_game_over_panel() -> void:
@@ -144,6 +156,7 @@ func _setup_game_over_panel() -> void:
 	_game_over_panel.offset_right = 225
 	_game_over_panel.offset_bottom = 110
 	_game_over_panel.visible = false
+	_game_over_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style = StyleBoxFlat.new()
 	style.bg_color = Color(0, 0, 0, 0.92)
 	style.border_color = Color(1, 0.8, 0)
@@ -163,12 +176,16 @@ func _setup_game_over_panel() -> void:
 	var restart_btn = FontUtilScript.make_button("重新开始")
 	restart_btn.custom_minimum_size = Vector2(200, 45)
 	restart_btn.pressed.connect(func():
+		GameManager.reset()
+		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/game/main.tscn")
 	)
 	vbox.add_child(restart_btn)
 	var menu_btn = FontUtilScript.make_button("返回主菜单")
 	menu_btn.custom_minimum_size = Vector2(200, 45)
 	menu_btn.pressed.connect(func():
+		GameManager.reset()
+		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 	)
 	vbox.add_child(menu_btn)
@@ -182,10 +199,10 @@ func _on_credits_changed(player_id: int, amount: int) -> void:
 	if player_id == 0:
 		_credits_label.text = "金币: %d" % amount
 
-func _on_power_changed(player_id: int, current: int, max_power: int) -> void:
+func _on_power_changed(player_id: int, generated: int, used: int) -> void:
 	if player_id == 0:
-		_power_label.text = "电力: %d/%d" % [current, max_power]
-		if current < max_power:
+		_power_label.text = "电力: %d/%d" % [generated, used]
+		if generated < used:
 			_power_label.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
 		else:
 			_power_label.add_theme_color_override("font_color", Color(0.5, 1, 0.5))
@@ -221,6 +238,8 @@ func _on_construction_complete(player_id: int, item_id: String) -> void:
 
 func _on_game_over(winner_id: int) -> void:
 	_game_over_panel.visible = true
+	_pause_panel.visible = false
+	get_tree().paused = true
 	var label = _game_over_panel.get_node("ResultLabel")
 	if winner_id == 0:
 		label.text = "胜利!"
@@ -230,7 +249,11 @@ func _on_game_over(winner_id: int) -> void:
 		label.add_theme_color_override("font_color", Color(1, 0, 0))
 
 func _on_game_paused(is_paused: bool) -> void:
+	if _game_over_panel.visible:
+		return
 	_pause_panel.visible = is_paused
+	if is_paused and _resume_btn:
+		_resume_btn.grab_focus()
 
 func _on_minimap_clicked(world_pos: Vector2) -> void:
 	var cam = get_viewport().get_camera_2d()
@@ -238,7 +261,10 @@ func _on_minimap_clicked(world_pos: Vector2) -> void:
 		cam.move_to_position(world_pos)
 
 func _process(delta: float) -> void:
-	_fps_label.text = "帧率: %d" % Engine.get_frames_per_second()
+	_fps_update_timer -= delta
+	if _fps_update_timer <= 0:
+		_fps_update_timer = 1.0
+		_fps_label.text = "帧率: %d" % Engine.get_frames_per_second()
 	if _notification_timer > 0:
 		_notification_timer -= delta
 		if _notification_timer <= 0:

@@ -5,8 +5,23 @@ enum TerrainType { WATER, SAND, GRASS, ORE, ROCK, ROAD }
 
 static var TILE_SIZE := 32
 
+static func world_to_tile(world_pos: Vector2) -> Vector2i:
+	return Vector2i(int(floor(world_pos.x / TILE_SIZE)), int(floor(world_pos.y / TILE_SIZE)))
+
+static func get_player_tint(player_id: int, alpha: float = 0.3) -> Color:
+	match player_id:
+		0:
+			return Color(0.2, 0.4, 1, alpha)
+		1:
+			return Color(1, 0.2, 0.2, alpha)
+		_:
+			return Color(0, 0, 0, 0)
+
 static func generate_map(width: int, height: int, seed_val: int) -> Array:
 	var map := []
+	if width <= 0 or height <= 0:
+		push_warning("MapData.generate_map: 非法的地图尺寸 %dx%d" % [width, height])
+		return map
 	var rng = RandomNumberGenerator.new()
 	rng.seed = seed_val
 	for y in range(height):
@@ -41,11 +56,11 @@ static func _simple_noise(x: int, y: int, rng: RandomNumberGenerator) -> float:
 static func _add_roads(map: Array, rng: RandomNumberGenerator) -> void:
 	var height = map.size()
 	var width = map[0].size()
-	var mid_y = height / 2
+	var mid_y: int = int(floor(height / 2.0))
 	for x in range(width):
 		if map[mid_y][x] != TerrainType.WATER:
 			map[mid_y][x] = TerrainType.ROAD
-	var mid_x = width / 2
+	var mid_x: int = int(floor(width / 2.0))
 	for y in range(height):
 		if map[y][mid_x] != TerrainType.WATER:
 			map[y][mid_x] = TerrainType.ROAD
@@ -68,7 +83,9 @@ static func _force_ore_near_spawns(map: Array, rng: RandomNumberGenerator) -> vo
 				if map[py][px] == TerrainType.ORE:
 					ore_count += 1
 		var needed = 8 - ore_count
-		while needed > 0:
+		var max_attempts = 200
+		while needed > 0 and max_attempts > 0:
+			max_attempts -= 1
 			var dx = rng.randi_range(-6, 6)
 			var dy = rng.randi_range(-6, 6)
 			var px = clampi(sp.x + dx, 0, width - 1)
@@ -95,7 +112,11 @@ static func get_terrain_color(terrain: int) -> Color:
 			return Color(0.2, 0.2, 0.2)
 
 static func is_passable(terrain: int) -> bool:
-	return terrain != TerrainType.WATER and terrain != TerrainType.ROCK
+	match terrain:
+		TerrainType.GRASS, TerrainType.SAND, TerrainType.ROAD, TerrainType.ORE:
+			return true
+		_:
+			return false
 
 static func get_move_cost(terrain: int) -> float:
 	match terrain:
@@ -103,12 +124,18 @@ static func get_move_cost(terrain: int) -> float:
 			return 0.5
 		TerrainType.SAND:
 			return 1.5
-		_:
+		TerrainType.GRASS, TerrainType.ORE:
 			return 1.0
+		_:
+			return INF
 
 static func find_spawn_points(map: Array) -> Array:
 	var height = map.size()
+	if height == 0:
+		return []
 	var width = map[0].size()
+	if width == 0:
+		return []
 	var candidates := [
 		Vector2i(5, 5),
 		Vector2i(width - 6, height - 6),
@@ -121,8 +148,8 @@ static func find_spawn_points(map: Array) -> Array:
 		for radius in range(0, 10):
 			for dx in range(-radius, radius + 1):
 				for dy in range(-radius, radius + 1):
-					var px = clampi(c.x + dx, 3, width - 4)
-					var py = clampi(c.y + dy, 3, height - 4)
+					var px = clampi(c.x + dx, 0, width - 1)
+					var py = clampi(c.y + dy, 0, height - 1)
 					if is_passable(map[py][px]):
 						points.append(Vector2i(px, py))
 						found = true
@@ -132,5 +159,5 @@ static func find_spawn_points(map: Array) -> Array:
 			if found:
 				break
 		if not found:
-			points.append(c)
+			points.append(Vector2i(clampi(c.x, 0, width - 1), clampi(c.y, 0, height - 1)))
 	return points

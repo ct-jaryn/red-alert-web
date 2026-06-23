@@ -4,8 +4,6 @@ extends PanelContainer
 const UnitData = preload("res://scripts/data/unit_data.gd")
 const FontUtilScript = preload("res://scripts/ui/font_util.gd")
 
-signal build_item_selected(item_id: String)
-
 var player_id: int = 0
 var _build_buttons: Dictionary = {}
 var _queue_container: VBoxContainer
@@ -25,8 +23,10 @@ func _ready() -> void:
 	GameManager.construction_complete.connect(_on_construction_complete)
 	GameManager.build_queue_updated.connect(_on_queue_updated)
 	GameManager.building_placed.connect(_on_building_placed)
+	GameManager.credits_changed.connect(_on_credits_changed)
 
 func _setup_ui() -> void:
+	mouse_filter = MOUSE_FILTER_STOP
 	var panel_style = StyleBoxFlat.new()
 	panel_style.bg_color = Color(0, 0, 0, 0.75)
 	panel_style.border_color = Color(0.4, 0.12, 0.08)
@@ -109,6 +109,8 @@ func _add_build_button(parent: Control, item_id: String) -> void:
 	_build_buttons[item_id] = btn
 
 func _on_build_button_pressed(item_id: String) -> void:
+	if GameManager.current_state != GameManager.GameState.PLAYING:
+		return
 	var p = GameManager.get_player(player_id)
 	if not p:
 		return
@@ -119,7 +121,6 @@ func _on_build_button_pressed(item_id: String) -> void:
 		return
 	if p.credits < info.get("cost", 0):
 		return
-	build_item_selected.emit(item_id)
 	GameManager.add_to_build_queue(player_id, item_id)
 
 func _on_construction_complete(p_id: int, item_id: String) -> void:
@@ -156,6 +157,8 @@ func _rebuild_queue_display(queue: Array) -> void:
 		_queue_container.add_child(hbox)
 
 func _cancel_queue_item(index: int, item_id: String) -> void:
+	if GameManager.current_state != GameManager.GameState.PLAYING:
+		return
 	var p = GameManager.get_player(player_id)
 	if not p:
 		return
@@ -181,13 +184,17 @@ func _update_button_states() -> void:
 		var info = UnitData.get_unit_info(item_id)
 		var can_build = UnitData.can_build(item_id, p.built_buildings)
 		var can_afford = p.credits >= info.get("cost", 0)
-		btn.disabled = not can_build
+		btn.disabled = not can_build or not can_afford
 		if can_build and not can_afford:
 			btn.modulate = Color(0.5, 0.5, 0.5)
 		elif can_build and can_afford:
 			btn.modulate = Color(1, 1, 1)
 		else:
 			btn.modulate = Color(0.3, 0.3, 0.3)
+
+func _on_credits_changed(p_id: int, _amount: int) -> void:
+	if p_id == player_id:
+		_update_button_states()
 
 func _process(_delta: float) -> void:
 	var p = GameManager.get_player(player_id)
@@ -199,5 +206,3 @@ func _process(_delta: float) -> void:
 		_progress_bar.value = 0.0
 		if _progress_label.text.begins_with("建造中:"):
 			_progress_label.text = "空闲"
-	if Engine.get_process_frames() % 15 == 0:
-		_update_button_states()

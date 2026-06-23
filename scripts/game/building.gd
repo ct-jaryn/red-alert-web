@@ -6,8 +6,8 @@ const ProjectileScript = preload("res://scripts/game/projectile.gd")
 const FontUtilScript = preload("res://scripts/ui/font_util.gd")
 const SpriteUtilScript = preload("res://scripts/ui/sprite_util.gd")
 
-@export var unit_id: String = ""
-@export var player_id: int = 0
+var unit_id: String = ""
+var player_id: int = 0
 
 var health: int = 100
 var max_health: int = 100
@@ -19,7 +19,7 @@ var attack_damage: int = 0
 var attack_range: float = 0.0
 var attack_cooldown: float = 1.0
 var _attack_timer: float = 0.0
-var _current_target: Node = null
+var _current_target: Node2D = null
 var _rally_point: Vector2 = Vector2.ZERO
 var _construction_timer: float = 0.0
 var _construction_duration: float = 1.0
@@ -37,16 +37,17 @@ var _health_fill: StyleBoxFlat
 func _ready() -> void:
 	add_to_group("buildings")
 	add_to_group("entities")
+	UnitRegistry.register(self)
 	var info = UnitData.get_unit_info(unit_id)
 	if not info.is_empty():
 		max_health = info.get("health", 100)
 		health = max_health
 		armor = info.get("armor", 0)
 		size_cells = info.get("size", Vector2i(1, 1))
-		can_attack = info.has("attack_damage")
 		attack_damage = info.get("attack_damage", 0)
 		attack_range = info.get("attack_range", 0.0)
 		attack_cooldown = info.get("attack_cooldown", 1.0)
+		can_attack = attack_damage > 0 and attack_range > 0.0
 	_setup_visuals()
 	_rally_point = global_position + Vector2(0, size_cells.y * MapData.TILE_SIZE / 2.0 + 30)
 	_start_construction()
@@ -64,7 +65,7 @@ func _setup_visuals() -> void:
 	if tex:
 		_sprite_rect.texture = tex
 	add_child(_sprite_rect)
-	var tint_color = _get_player_tint()
+	var tint_color = MapData.get_player_tint(player_id, 0.25)
 	_tint_rect = ColorRect.new()
 	_tint_rect.size = Vector2(w, h)
 	_tint_rect.position = Vector2(-w / 2.0, -h / 2.0)
@@ -109,15 +110,6 @@ func _setup_visuals() -> void:
 	_construction_overlay.visible = false
 	add_child(_construction_overlay)
 
-func _get_player_tint() -> Color:
-	match player_id:
-		0:
-			return Color(0.2, 0.4, 1, 0.25)
-		1:
-			return Color(1, 0.2, 0.2, 0.25)
-		_:
-			return Color(0, 0, 0, 0)
-
 func _start_construction() -> void:
 	_is_constructing = true
 	_construction_timer = 0.0
@@ -132,16 +124,18 @@ func _process(delta: float) -> void:
 		if progress >= 1.0:
 			_is_constructing = false
 			_construction_overlay.visible = false
-	if _health_bar.visible:
-		_health_bar.value = float(health) / float(max_health)
+	if _health_bar.visible and max_health > 0:
 		var h_ratio = float(health) / float(max_health)
+		_health_bar.value = h_ratio
 		if h_ratio > 0.6:
 			_health_fill.bg_color = Color(0, 1, 0)
 		elif h_ratio > 0.3:
 			_health_fill.bg_color = Color(1, 1, 0)
 		else:
 			_health_fill.bg_color = Color(1, 0, 0)
-	if can_attack and not _is_constructing:
+
+func _physics_process(delta: float) -> void:
+	if can_attack and not _is_constructing and health > 0:
 		_attack_timer -= delta
 		if _attack_timer <= 0:
 			_try_attack()
@@ -164,13 +158,18 @@ func _try_attack() -> void:
 	if is_instance_valid(_current_target):
 		_attack_timer = attack_cooldown
 		_fire_at(_current_target)
+	else:
+		# 无目标时 also 重置扫描间隔，避免每帧都搜索
+		_attack_timer = attack_cooldown
 
-func _find_target() -> Node:
+func _find_target() -> Node2D:
 	var enemies = UnitRegistry.get_units_in_radius(global_position, attack_range)
-	var best: Node = null
+	var best: Node2D = null
 	var best_dist := attack_range + 1.0
 	for e in enemies:
 		if not is_instance_valid(e):
+			continue
+		if not (e is Node2D):
 			continue
 		if not ("player_id" in e) or e.player_id == player_id:
 			continue
@@ -180,9 +179,11 @@ func _find_target() -> Node:
 			best = e
 	return best
 
-func _fire_at(target: Node) -> void:
-	var proj = ProjectileScript.create(global_position, target, attack_damage, player_id)
-	get_tree().current_scene.add_child(proj)
+func _fire_at(target: Node2D) -> void:
+	var proj = ProjectileScript.create(global_position, target, attack_damage, player_id, self)
+	var scene = get_tree().current_scene
+	if scene:
+		scene.add_child(proj)
 
 func take_damage(amount: int, _attacker: Node = null) -> void:
 	var actual = maxi(1, amount - armor)

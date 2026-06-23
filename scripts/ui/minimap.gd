@@ -16,8 +16,10 @@ var _unit_dots: Node2D
 var _image: Image
 var _texture: ImageTexture
 var _border: ReferenceRect
+var _last_camera_pos: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	minimap_size = size
 	if minimap_size.x < 50:
 		minimap_size = Vector2(200, 150)
@@ -100,7 +102,14 @@ func _generate_minimap_image() -> void:
 	_texture_rect.texture = _texture
 
 func _process(_delta: float) -> void:
-	_camera_indicator.queue_redraw()
+	# 仅在相机移动时重绘指示器
+	var camera = get_viewport().get_camera_2d()
+	if camera:
+		var cam_pos = camera.position
+		if cam_pos.distance_to(_last_camera_pos) > 1.0:
+			_last_camera_pos = cam_pos
+			_camera_indicator.queue_redraw()
+	# 实体标记每帧更新（位置持续变化）
 	_unit_dots.queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
@@ -109,3 +118,4 @@ func _gui_input(event: InputEvent) -> void:
 		var world_x = click_pos.x / minimap_size.x * map_width * MapData.TILE_SIZE
 		var world_y = click_pos.y / minimap_size.y * map_height * MapData.TILE_SIZE
 		minimap_clicked.emit(Vector2(world_x, world_y))
+		accept_event()

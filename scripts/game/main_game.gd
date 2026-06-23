@@ -23,7 +23,6 @@ var effects: Node2D
 var fog_of_war: Node2D
 var buildings_node: Node2D
 var units_node: Node2D
-var effects_node: Node2D
 var _selection_start: Vector2 = Vector2.ZERO
 var _is_selecting: bool = false
 var _unit_groups: Dictionary = {}
@@ -56,9 +55,6 @@ func _setup_nodes() -> void:
 	units_node = Node2D.new()
 	units_node.name = "Units"
 	add_child(units_node)
-	effects_node = Node2D.new()
-	effects_node.name = "EffectsContainer"
-	add_child(effects_node)
 	map_renderer = MapRendererScript.new()
 	map_renderer.name = "MapRenderer"
 	map_renderer.z_index = -10
@@ -98,13 +94,17 @@ func _setup_nodes() -> void:
 func _start_game() -> void:
 	GameManager.start_game(2)
 	map_renderer.setup_map(GameManager.game_map)
-	hud._minimap.setup_map(GameManager.game_map)
+	hud.setup_minimap(GameManager.game_map)
 	fog_of_war.setup(GameManager.map_width, GameManager.map_height, 0)
+	# 将视口背景设为草地色，避免地图外显示灰色虚空
+	RenderingServer.set_default_clear_color(MapData.get_terrain_color(MapData.TerrainType.GRASS))
 	_spawn_starting_units()
 	var spawn_points = MapData.find_spawn_points(GameManager.game_map)
 	if spawn_points.size() > 0:
 		var sp = spawn_points[0]
-		camera.position = Vector2(sp.x * MapData.TILE_SIZE, sp.y * MapData.TILE_SIZE)
+		var base_pos = Vector2(sp.x * MapData.TILE_SIZE, sp.y * MapData.TILE_SIZE)
+		camera.position = base_pos
+		camera._clamp_position()
 
 func _spawn_starting_units() -> void:
 	var spawn_points = MapData.find_spawn_points(GameManager.game_map)
@@ -155,16 +155,19 @@ func _create_unit(unit_id: String, p_id: int, pos: Vector2) -> Node:
 func _on_building_placed(building_id: String, pos: Vector2) -> void:
 	GameManager.confirm_building_placement(pos)
 	var info = UnitData.get_unit_info(building_id)
-	effects.create_build_effect(pos, Vector2(info["size"].x * MapData.TILE_SIZE, info["size"].y * MapData.TILE_SIZE))
+	var bsize = info.get("size", Vector2i(1, 1))
+	effects.create_build_effect(pos, Vector2(bsize.x * MapData.TILE_SIZE, bsize.y * MapData.TILE_SIZE))
 
 func _on_building_ready_to_place(player_id: int, building_id: String) -> void:
 	if player_id == 0:
 		building_placer.start_placement(building_id, player_id)
 
 func _on_placement_cancelled(building_id: String) -> void:
+	if GameManager.pending_building_player < 0:
+		return
 	var info = UnitData.get_unit_info(building_id)
 	if not info.is_empty():
-		GameManager.add_credits(0, info.get("cost", 0))
+		GameManager.add_credits(GameManager.pending_building_player, info.get("cost", 0))
 	GameManager.pending_building_id = ""
 	GameManager.pending_building_player = -1
 
@@ -203,21 +206,27 @@ func _unhandled_input(event: InputEvent) -> void:
 			GameManager.toggle_pause()
 		elif event.keycode == KEY_DELETE:
 			_delete_selected()
-		elif event.ctrl_pressed:
-			_handle_group_hotkey(event.keycode)
+		elif event.keycode >= KEY_1 and event.keycode <= KEY_9:
+			_handle_group_hotkey(event.keycode, event.ctrl_pressed)
 
-func _handle_group_hotkey(keycode: Key) -> void:
-	if keycode >= KEY_1 and keycode <= KEY_9:
-		var group_num = keycode - KEY_1
-		if not GameManager.selected_units.is_empty():
-			_unit_groups[group_num] = GameManager.selected_units.duplicate()
-		elif _unit_groups.has(group_num):
-			var valid_units := []
-			for u in _unit_groups[group_num]:
-				if is_instance_valid(u):
-					valid_units.append(u)
+func _handle_group_hotkey(keycode: Key, is_ctrl: bool) -> void:
+	var group_num = keycode - KEY_1
+	if is_ctrl:
+		# Ctrl+数字：保存当前选中的单位到编队
+		var valid_units := []
+		for u in GameManager.selected_units:
+			if is_instance_valid(u) and not u.is_queued_for_deletion():
+				valid_units.append(u)
+		if not valid_units.is_empty():
 			_unit_groups[group_num] = valid_units
-			GameManager.set_selection(valid_units)
+	elif _unit_groups.has(group_num):
+		# 单独按数字：选中已保存的编队
+		var valid_units := []
+		for u in _unit_groups[group_num]:
+			if is_instance_valid(u) and not u.is_queued_for_deletion():
+				valid_units.append(u)
+		_unit_groups[group_num] = valid_units
+		GameManager.set_selection(valid_units)
 
 func _on_selection_finished(rect: Rect2) -> void:
 	if rect.size.x < 5 and rect.size.y < 5:
@@ -300,9 +309,10 @@ func _handle_right_click(pos: Vector2) -> void:
 		if target_enemy and unit.has_method("attack_target"):
 			unit.attack_target(target_enemy)
 		else:
+			var cols = ceili(sqrt(GameManager.selected_units.size()))
 			var offset = Vector2(
-				(i % 3 - 1) * 30,
-				(i / 3 - 1) * 30
+				(i % cols - cols / 2.0) * 30,
+				(i / cols - cols / 2.0) * 30
 			)
 			unit.move_to(pos + offset)
 

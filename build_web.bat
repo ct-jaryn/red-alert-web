@@ -37,7 +37,7 @@ echo.
 echo Web build exported to: export\web\
 echo Open export\web\index.html in a browser to play
 echo.
-echo To serve locally:
-echo   python -m http.server 8000 --directory export\web
-echo   Then open http://localhost:8000
+echo To serve locally (必须使用带 COOP/COEP 头的服务器):
+echo   python serve.py
+echo   Then open http://localhost:9000
 pause

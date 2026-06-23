@@ -31,7 +31,7 @@ class PlayerData:
 	var credits: int = 5000
 	var power_generated: int = 0
 	var power_used: int = 0
-	var built_buildings: Array = []
+	var built_buildings: Dictionary = {}  # {unit_id: count}
 	var build_queue: Array = []
 	var current_build_item: String = ""
 	var build_progress: float = 0.0
@@ -46,12 +46,23 @@ var pending_building_id: String = ""
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
+func reset() -> void:
+	current_state = GameState.MENU
+	players.clear()
+	selected_units.clear()
+	game_map.clear()
+	pending_building_id = ""
+	pending_building_player = -1
+
 func start_game(num_players: int = 2, seed_val: int = 0) -> void:
 	if seed_val == 0:
 		seed_val = randi()
 	map_seed = seed_val
 	players.clear()
 	selected_units.clear()
+	pending_building_id = ""
+	pending_building_player = -1
+	current_state = GameState.MENU
 	for i in range(num_players):
 		var p = PlayerData.new()
 		p.id = i
@@ -101,13 +112,18 @@ func update_power(player_id: int) -> void:
 	var tree = get_tree()
 	if tree:
 		for node in tree.get_nodes_in_group("buildings"):
-			if node.player_id == player_id and is_instance_valid(node):
-				var info = UnitData.get_unit_info(node.unit_id)
-				var pw = info.get("power", 0)
-				if pw > 0:
-					p.power_generated += pw
-				else:
-					p.power_used += abs(pw)
+			if not is_instance_valid(node):
+				continue
+			if not ("player_id" in node) or node.player_id != player_id:
+				continue
+			if not ("unit_id" in node):
+				continue
+			var info = UnitData.get_unit_info(node.unit_id)
+			var pw = info.get("power", 0)
+			if pw > 0:
+				p.power_generated += pw
+			else:
+				p.power_used += abs(pw)
 	power_changed.emit(player_id, p.power_generated, p.power_used)
 
 func has_power(player_id: int) -> bool:
@@ -117,17 +133,27 @@ func has_power(player_id: int) -> bool:
 	return p.power_generated >= p.power_used
 
 func register_building(building: Node) -> void:
+	if not ("player_id" in building) or not ("unit_id" in building):
+		return
 	var p = get_player(building.player_id)
-	if p and building.unit_id not in p.built_buildings:
-		p.built_buildings.append(building.unit_id)
+	if p:
+		p.built_buildings[building.unit_id] = p.built_buildings.get(building.unit_id, 0) + 1
 	update_power(building.player_id)
 	building_placed.emit(building)
 
 func unregister_building(building: Node) -> void:
+	if not ("player_id" in building) or not ("unit_id" in building):
+		return
 	var p = get_player(building.player_id)
 	if p:
-		p.built_buildings.erase(building.unit_id)
+		var count = p.built_buildings.get(building.unit_id, 0)
+		if count <= 1:
+			p.built_buildings.erase(building.unit_id)
+		else:
+			p.built_buildings[building.unit_id] = count - 1
 	update_power(building.player_id)
+	selected_units.erase(building)
+	selection_changed.emit(selected_units)
 	building_destroyed.emit(building)
 	check_game_over()
 
@@ -136,8 +162,9 @@ func register_unit(unit: Node) -> void:
 
 func unregister_unit(unit: Node) -> void:
 	unit_destroyed.emit(unit)
-	selected_units.erase(unit)
-	selection_changed.emit(selected_units)
+	if unit in selected_units:
+		selected_units.erase(unit)
+		selection_changed.emit(selected_units)
 	check_game_over()
 
 func set_selection(units: Array) -> void:
@@ -168,7 +195,9 @@ func add_to_build_queue(player_id: int, item_id: String) -> void:
 
 func _start_next_build(player_id: int) -> void:
 	var p = get_player(player_id)
-	if not p or p.build_queue.is_empty():
+	if not p:
+		return
+	if p.build_queue.is_empty():
 		p.current_build_item = ""
 		p.build_progress = 0.0
 		return
@@ -178,6 +207,8 @@ func _start_next_build(player_id: int) -> void:
 func _process(delta: float) -> void:
 	if current_state != GameState.PLAYING:
 		return
+	if get_tree().paused:
+		return
 	for p in players:
 		if p.current_build_item.is_empty():
 			continue
@@ -185,16 +216,22 @@ func _process(delta: float) -> void:
 		if info.is_empty():
 			continue
 		var build_time = info.get("build_time", 5.0)
+		if build_time <= 0:
+			build_time = 0.1
 		var speed_mult = 1.0
 		if not has_power(p.id):
 			speed_mult = 0.5
 		p.build_progress += (delta / build_time) * speed_mult
 		if p.build_progress >= 1.0:
+			var overflow = p.build_progress - 1.0
 			var completed_item = p.current_build_item
 			p.build_queue.pop_front()
+			_start_next_build(p.id)
+			# 将多余进度应用到下一项
+			if not p.current_build_item.is_empty():
+				p.build_progress = overflow
 			construction_complete.emit(p.id, completed_item)
 			_spawn_completed_item(p.id, completed_item)
-			_start_next_build(p.id)
 
 func _spawn_completed_item(player_id: int, item_id: String) -> void:
 	var info = UnitData.get_unit_info(item_id)
@@ -243,6 +280,11 @@ func _spawn_completed_item(player_id: int, item_id: String) -> void:
 					var ref = _find_refinery(player_id)
 					if ref:
 						unit.set_harvest_target(ref)
+	else:
+		# 生产建筑已毁，退还费用
+		var refund = info.get("cost", 0)
+		if refund > 0:
+			add_credits(player_id, refund)
 
 func _find_refinery(player_id: int) -> Node:
 	var buildings = get_tree().get_nodes_in_group("buildings")
@@ -252,11 +294,16 @@ func _find_refinery(player_id: int) -> Node:
 	return null
 
 func check_game_over() -> void:
+	if current_state == GameState.GAME_OVER:
+		return
+	var tree = get_tree()
+	if not tree:
+		return
 	var alive_players := []
 	for p in players:
 		if not p.is_defeated:
 			var has_buildings := false
-			for node in get_tree().get_nodes_in_group("buildings"):
+			for node in tree.get_nodes_in_group("buildings"):
 				if is_instance_valid(node) and node.player_id == p.id:
 					has_buildings = true
 					break
@@ -270,21 +317,19 @@ func check_game_over() -> void:
 		game_over.emit(winner)
 
 func get_terrain_at(world_pos: Vector2) -> int:
-	var tx = int(world_pos.x / MapData.TILE_SIZE)
-	var ty = int(world_pos.y / MapData.TILE_SIZE)
-	if tx < 0 or tx >= map_width or ty < 0 or ty >= map_height:
+	var tile = MapData.world_to_tile(world_pos)
+	if tile.x < 0 or tile.x >= map_width or tile.y < 0 or tile.y >= map_height:
 		return MapData.TerrainType.WATER
-	return game_map[ty][tx]
+	return game_map[tile.y][tile.x]
 
 func is_ore_at(world_pos: Vector2) -> bool:
 	return get_terrain_at(world_pos) == MapData.TerrainType.ORE
 
 func harvest_ore(world_pos: Vector2) -> bool:
-	var tx = int(world_pos.x / MapData.TILE_SIZE)
-	var ty = int(world_pos.y / MapData.TILE_SIZE)
-	if tx >= 0 and tx < map_width and ty >= 0 and ty < map_height:
-		if game_map[ty][tx] == MapData.TerrainType.ORE:
-			game_map[ty][tx] = MapData.TerrainType.GRASS
+	var tile = MapData.world_to_tile(world_pos)
+	if tile.x >= 0 and tile.x < map_width and tile.y >= 0 and tile.y < map_height:
+		if game_map[tile.y][tile.x] == MapData.TerrainType.ORE:
+			game_map[tile.y][tile.x] = MapData.TerrainType.GRASS
 			return true
 	return false
 
@@ -299,17 +344,25 @@ func confirm_building_placement(pos: Vector2) -> void:
 	pending_building_id = ""
 	pending_building_player = -1
 
-func _ai_place_building(player_id: int, building_id: String) -> void:
+
+
+func _ai_place_building(player_id: int, building_id: String) -> bool:
 	var info = UnitData.get_unit_info(building_id)
+	if info.is_empty():
+		return false
 	var size = info.get("size", Vector2i(1, 1))
-	var base_pos = Vector2.ZERO
+	var base_pos := Vector2(-1.0, -1.0)
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and b.player_id == player_id and b.unit_id == "construction_yard":
 			base_pos = b.global_position
 			break
+	if base_pos.x < 0:
+		# 没有建造厂，退还费用
+		add_credits(player_id, info.get("cost", 0))
+		return false
 	var best_pos = Vector2.ZERO
 	var found = false
-	for radius in range(2, 8):
+	for radius in range(2, 10):
 		for angle_step in range(0, 360, 30):
 			var offset = Vector2.from_angle(deg_to_rad(angle_step)) * radius * MapData.TILE_SIZE
 			var place_pos = base_pos + offset
@@ -319,26 +372,34 @@ func _ai_place_building(player_id: int, building_id: String) -> void:
 				break
 		if found:
 			break
-	if found:
-		var main = get_tree().current_scene
-		if main and main.has_method("_create_building"):
-			var building = main._create_building(building_id, player_id, best_pos)
-			if building:
-				register_building(building)
+	if not found:
+		add_credits(player_id, info.get("cost", 0))
+		return false
+	var main = get_tree().current_scene
+	if main and main.has_method("_create_building"):
+		var building = main._create_building(building_id, player_id, best_pos)
+		if building:
+			register_building(building)
+			return true
+	add_credits(player_id, info.get("cost", 0))
+	return false
 
 func _ai_can_place_at(player_id: int, pos: Vector2, size: Vector2i) -> bool:
 	var half_w = size.x * MapData.TILE_SIZE / 2.0
 	var half_h = size.y * MapData.TILE_SIZE / 2.0
-	var corners = [
-		pos + Vector2(-half_w + 2, -half_h + 2),
-		pos + Vector2(half_w - 2, -half_h + 2),
-		pos + Vector2(-half_w + 2, half_h - 2),
-		pos + Vector2(half_w - 2, half_h - 2),
-	]
-	for corner in corners:
-		var terrain = get_terrain_at(corner)
-		if not MapData.is_passable(terrain):
-			return false
+	# 遍历建筑覆盖的所有瓦片，确保全部可通过
+	var min_tile_x := int(floor((pos.x - half_w) / MapData.TILE_SIZE))
+	var max_tile_x := int(floor((pos.x + half_w - 0.001) / MapData.TILE_SIZE))
+	var min_tile_y := int(floor((pos.y - half_h) / MapData.TILE_SIZE))
+	var max_tile_y := int(floor((pos.y + half_h - 0.001) / MapData.TILE_SIZE))
+	for tx in range(min_tile_x, max_tile_x + 1):
+		for ty in range(min_tile_y, max_tile_y + 1):
+			var check_pos := Vector2(
+				tx * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0,
+				ty * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0
+			)
+			if not MapData.is_passable(get_terrain_at(check_pos)):
+				return false
 	var my_rect = Rect2(
 		pos - Vector2(half_w, half_h),
 		Vector2(size.x * MapData.TILE_SIZE, size.y * MapData.TILE_SIZE)
