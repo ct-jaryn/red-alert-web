@@ -230,6 +230,7 @@ func _process(delta: float) -> void:
 			# 将多余进度应用到下一项
 			if not p.current_build_item.is_empty():
 				p.build_progress = overflow
+			build_queue_updated.emit(p.id, p.build_queue)
 			construction_complete.emit(p.id, completed_item)
 			_spawn_completed_item(p.id, completed_item)
 

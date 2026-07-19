@@ -4,6 +4,7 @@ const UnitData = preload("res://scripts/data/unit_data.gd")
 const BuildPanelScript = preload("res://scripts/ui/build_panel.gd")
 const MinimapScript = preload("res://scripts/ui/minimap.gd")
 const FontUtilScript = preload("res://scripts/ui/font_util.gd")
+const SpriteUtilScript = preload("res://scripts/ui/sprite_util.gd")
 
 var _credits_label: Label
 var _power_label: Label
@@ -15,6 +16,7 @@ var _minimap: Control
 var _pause_panel: PanelContainer
 var _resume_btn: Button
 var _game_over_panel: PanelContainer
+var _result_label: Label
 var _notification_label: Label
 var _notification_timer: float = 0.0
 var _fps_update_timer: float = 0.0
@@ -35,16 +37,35 @@ func _setup_ui() -> void:
 	top_bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	top_bar.position = Vector2(15, 10)
 	top_bar.size = Vector2(600, 30)
+	top_bar.add_theme_constant_override("separation", 8)
 	add_child(top_bar)
+	# 金币图标
+	var credits_icon_tex = SpriteUtilScript.get_icon("credits")
+	if credits_icon_tex:
+		var credits_icon = TextureRect.new()
+		credits_icon.texture = credits_icon_tex
+		credits_icon.custom_minimum_size = Vector2(24, 24)
+		credits_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		credits_icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		top_bar.add_child(credits_icon)
 	_credits_label = FontUtilScript.make_label("金币: 5000", 18, Color(1, 0.85, 0))
 	top_bar.add_child(_credits_label)
 	var spacer = Control.new()
-	spacer.custom_minimum_size = Vector2(40, 0)
+	spacer.custom_minimum_size = Vector2(30, 0)
 	top_bar.add_child(spacer)
+	# 电力图标
+	var power_icon_tex = SpriteUtilScript.get_icon("power")
+	if power_icon_tex:
+		var power_icon = TextureRect.new()
+		power_icon.texture = power_icon_tex
+		power_icon.custom_minimum_size = Vector2(24, 24)
+		power_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		power_icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		top_bar.add_child(power_icon)
 	_power_label = FontUtilScript.make_label("电力: 0/0", 18, Color(0.5, 1, 0.5))
 	top_bar.add_child(_power_label)
 	spacer = Control.new()
-	spacer.custom_minimum_size = Vector2(40, 0)
+	spacer.custom_minimum_size = Vector2(30, 0)
 	top_bar.add_child(spacer)
 	_fps_label = FontUtilScript.make_label("帧率: 60", 13, Color(0.7, 0.7, 0.7))
 	top_bar.add_child(_fps_label)
@@ -169,10 +190,10 @@ func _setup_game_over_panel() -> void:
 	var vbox = VBoxContainer.new()
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	_game_over_panel.add_child(vbox)
-	var label = FontUtilScript.make_label("胜利", 36, Color(1, 0.85, 0))
-	label.name = "ResultLabel"
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(label)
+	_result_label = FontUtilScript.make_label("胜利", 36, Color(1, 0.85, 0))
+	_result_label.name = "ResultLabel"
+	_result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_result_label)
 	var restart_btn = FontUtilScript.make_button("重新开始")
 	restart_btn.custom_minimum_size = Vector2(200, 45)
 	restart_btn.pressed.connect(func():
@@ -240,13 +261,15 @@ func _on_game_over(winner_id: int) -> void:
 	_game_over_panel.visible = true
 	_pause_panel.visible = false
 	get_tree().paused = true
-	var label = _game_over_panel.get_node("ResultLabel")
 	if winner_id == 0:
-		label.text = "胜利!"
-		label.add_theme_color_override("font_color", Color(0, 1, 0))
+		_result_label.text = "胜利!"
+		_result_label.add_theme_color_override("font_color", Color(0, 1, 0))
+	elif winner_id == -1:
+		_result_label.text = "平局"
+		_result_label.add_theme_color_override("font_color", Color(1, 1, 0))
 	else:
-		label.text = "战败"
-		label.add_theme_color_override("font_color", Color(1, 0, 0))
+		_result_label.text = "战败"
+		_result_label.add_theme_color_override("font_color", Color(1, 0, 0))
 
 func _on_game_paused(is_paused: bool) -> void:
 	if _game_over_panel.visible:
@@ -259,6 +282,16 @@ func _on_minimap_clicked(world_pos: Vector2) -> void:
 	var cam = get_viewport().get_camera_2d()
 	if cam and cam.has_method("move_to_position"):
 		cam.move_to_position(world_pos)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		if _game_over_panel.visible:
+			return
+		# 如果正在放置建筑，不处理ESC（由主场景处理取消放置）
+		if not GameManager.pending_building_id.is_empty():
+			return
+		GameManager.toggle_pause()
+		get_viewport().set_input_as_handled()
 
 func _process(delta: float) -> void:
 	_fps_update_timer -= delta

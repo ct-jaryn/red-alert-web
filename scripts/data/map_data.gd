@@ -42,6 +42,7 @@ static func generate_map(width: int, height: int, seed_val: int) -> Array:
 			row.append(terrain)
 		map.append(row)
 	_add_roads(map, rng)
+	_clear_spawn_areas(map)
 	_force_ore_near_spawns(map, rng)
 	return map
 
@@ -64,6 +65,24 @@ static func _add_roads(map: Array, rng: RandomNumberGenerator) -> void:
 	for y in range(height):
 		if map[y][mid_x] != TerrainType.WATER:
 			map[y][mid_x] = TerrainType.ROAD
+
+static func _clear_spawn_areas(map: Array) -> void:
+	var height = map.size()
+	var width = map[0].size()
+	var spawn_candidates := [
+		Vector2i(5, 5),
+		Vector2i(width - 6, height - 6),
+		Vector2i(5, height - 6),
+		Vector2i(width - 6, 5),
+	]
+	for sp in spawn_candidates:
+		# 清理出生点周围5格内的不可通行地形，确保初始基地可正常运作
+		for dx in range(-5, 6):
+			for dy in range(-5, 6):
+				var px = clampi(sp.x + dx, 0, width - 1)
+				var py = clampi(sp.y + dy, 0, height - 1)
+				if map[py][px] == TerrainType.WATER or map[py][px] == TerrainType.ROCK:
+					map[py][px] = TerrainType.GRASS
 
 static func _force_ore_near_spawns(map: Array, rng: RandomNumberGenerator) -> void:
 	var height = map.size()

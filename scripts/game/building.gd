@@ -186,6 +186,8 @@ func _fire_at(target: Node2D) -> void:
 		scene.add_child(proj)
 
 func take_damage(amount: int, _attacker: Node = null) -> void:
+	if health <= 0:
+		return
 	var actual = maxi(1, amount - armor)
 	health -= actual
 	health = maxi(0, health)
@@ -197,6 +199,8 @@ func die() -> void:
 	var main = get_tree().current_scene
 	if main and main.has_node("Effects"):
 		main.get_node("Effects").create_explosion(global_position, 2.0)
+	remove_from_group("buildings")
+	remove_from_group("entities")
 	GameManager.unregister_building(self)
 	queue_free()
 

@@ -22,9 +22,19 @@ func _ready() -> void:
 	_setup_animations()
 
 func _setup_background() -> void:
+	# 加载背景图片
+	var bg_tex = load("res://assets/sprites/ui/menu_background.png") as Texture2D
+	if bg_tex:
+		var bg_image = TextureRect.new()
+		bg_image.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bg_image.texture = bg_tex
+		bg_image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		bg_image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		bg_image.modulate = Color(0.6, 0.5, 0.5, 1.0)  # 稍微变暗以便UI更清晰
+		add_child(bg_image)
 	var bg = ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.05, 0.02, 0.02)
+	bg.color = Color(0.05, 0.02, 0.02, 0.5)  # 半透明覆盖层
 	add_child(bg)
 	_bg_particles = Node2D.new()
 	_bg_particles.z_index = 1

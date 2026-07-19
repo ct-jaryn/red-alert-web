@@ -127,14 +127,31 @@ func _spawn_base(pos: Vector2, p_id: int) -> void:
 	if ref:
 		GameManager.register_building(ref)
 	for i in range(3):
-		var rifle = _create_unit("rifle_infantry", p_id, pos + Vector2(-60 + i * 30, 80))
+		var unit_pos = _find_passable_pos(pos + Vector2(-60 + i * 30, 80))
+		var rifle = _create_unit("rifle_infantry", p_id, unit_pos)
 		if rifle:
 			GameManager.register_unit(rifle)
-	var harvester = _create_unit("harvester", p_id, pos + Vector2(0, 100))
+	var harvester_pos = _find_passable_pos(pos + Vector2(0, 100))
+	var harvester = _create_unit("harvester", p_id, harvester_pos)
 	if harvester:
 		GameManager.register_unit(harvester)
 		if ref:
 			harvester.set_harvest_target(ref)
+
+func _find_passable_pos(pos: Vector2) -> Vector2:
+	var terrain = GameManager.get_terrain_at(pos)
+	if MapData.is_passable(terrain):
+		return pos
+	# 螺旋搜索附近可通行位置
+	for radius in range(1, 8):
+		for dx in range(-radius, radius + 1):
+			for dy in range(-radius, radius + 1):
+				if abs(dx) != radius and abs(dy) != radius:
+					continue
+				var check_pos = pos + Vector2(dx * MapData.TILE_SIZE, dy * MapData.TILE_SIZE)
+				if MapData.is_passable(GameManager.get_terrain_at(check_pos)):
+					return check_pos
+	return pos
 
 func _create_building(building_id: String, p_id: int, pos: Vector2) -> Node:
 	var building = BuildingScene.instantiate()
@@ -203,7 +220,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		selection_box.update(get_global_mouse_position())
 	elif event is InputEventKey and event.pressed:
 		if event.keycode == KEY_ESCAPE:
-			GameManager.toggle_pause()
+			if building_placer.is_placing:
+				building_placer.cancel_placement()
+				get_viewport().set_input_as_handled()
 		elif event.keycode == KEY_DELETE:
 			_delete_selected()
 		elif event.keycode >= KEY_1 and event.keycode <= KEY_9:

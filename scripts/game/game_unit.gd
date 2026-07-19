@@ -156,9 +156,17 @@ func _process_moving(_delta: float) -> void:
 		return
 	var terrain = GameManager.get_terrain_at(global_position)
 	if not MapData.is_passable(terrain):
-		_is_moving = false
-		velocity = Vector2.ZERO
-		current_state = UnitState.IDLE
+		# 单位在不可通行地形上，尝试移动到附近可通行位置
+		var escape_pos = _find_nearby_passable()
+		if escape_pos != Vector2.ZERO:
+			_move_target = escape_pos
+			var escape_dir = (escape_pos - global_position).normalized()
+			velocity = escape_dir * speed
+			move_and_slide()
+		else:
+			_is_moving = false
+			velocity = Vector2.ZERO
+			current_state = UnitState.IDLE
 		return
 	var cost = MapData.get_move_cost(terrain)
 	velocity = dir * (speed / cost)
@@ -168,6 +176,17 @@ func _process_moving(_delta: float) -> void:
 	move_and_slide()
 	if attack_range > 0 and harvest_capacity == 0:
 		_check_attack_opportunity()
+
+func _find_nearby_passable() -> Vector2:
+	for radius in range(1, 5):
+		for dx in range(-radius, radius + 1):
+			for dy in range(-radius, radius + 1):
+				if abs(dx) != radius and abs(dy) != radius:
+					continue
+				var check_pos = global_position + Vector2(dx * MapData.TILE_SIZE, dy * MapData.TILE_SIZE)
+				if MapData.is_passable(GameManager.get_terrain_at(check_pos)):
+					return check_pos
+	return Vector2.ZERO
 
 func _process_attacking(delta: float) -> void:
 	if not is_instance_valid(_current_target):
@@ -293,6 +312,8 @@ func _fire_at(target: Node2D) -> void:
 		scene.add_child(proj)
 
 func take_damage(amount: int, _attacker: Node = null) -> void:
+	if health <= 0:
+		return
 	var actual = maxi(1, amount - armor)
 	health -= actual
 	health = maxi(0, health)
@@ -308,6 +329,8 @@ func die() -> void:
 	if main and main.has_node("Effects"):
 		var sz = 1.5 if UnitData.get_unit_info(unit_id).get("type", 0) == UnitData.UnitType.VEHICLE else 0.8
 		main.get_node("Effects").create_explosion(global_position, sz)
+	remove_from_group("units")
+	remove_from_group("entities")
 	GameManager.unregister_unit(self)
 	queue_free()
 

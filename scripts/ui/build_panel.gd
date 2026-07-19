@@ -3,6 +3,7 @@ extends PanelContainer
 
 const UnitData = preload("res://scripts/data/unit_data.gd")
 const FontUtilScript = preload("res://scripts/ui/font_util.gd")
+const SpriteUtilScript = preload("res://scripts/ui/sprite_util.gd")
 
 var player_id: int = 0
 var _build_buttons: Dictionary = {}
@@ -100,12 +101,25 @@ func _add_build_button(parent: Control, item_id: String) -> void:
 	var info = UnitData.get_unit_info(item_id)
 	if info.is_empty():
 		return
+	var hbox = HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 6)
+	# 添加图标
+	var icon_tex = SpriteUtilScript.get_icon(item_id)
+	if icon_tex:
+		var icon = TextureRect.new()
+		icon.texture = icon_tex
+		icon.custom_minimum_size = Vector2(32, 32)
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		hbox.add_child(icon)
 	var btn = FontUtilScript.make_button("%s [$%d]" % [info.get("name", item_id), info.get("cost", 0)])
 	btn.name = item_id
-	btn.custom_minimum_size = Vector2(180, 30)
+	btn.custom_minimum_size = Vector2(140, 32)
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.pressed.connect(_on_build_button_pressed.bind(item_id))
-	parent.add_child(btn)
+	hbox.add_child(btn)
+	parent.add_child(hbox)
 	_build_buttons[item_id] = btn
 
 func _on_build_button_pressed(item_id: String) -> void:
@@ -149,11 +163,10 @@ func _rebuild_queue_display(queue: Array) -> void:
 		var label = FontUtilScript.make_label(info.get("name", item_id), 11)
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		hbox.add_child(label)
-		if i > 0:
-			var cancel_btn = FontUtilScript.make_button("取消", 10)
-			cancel_btn.custom_minimum_size = Vector2(40, 20)
-			cancel_btn.pressed.connect(_cancel_queue_item.bind(i, item_id))
-			hbox.add_child(cancel_btn)
+		var cancel_btn = FontUtilScript.make_button("取消", 10)
+		cancel_btn.custom_minimum_size = Vector2(40, 20)
+		cancel_btn.pressed.connect(_cancel_queue_item.bind(i, item_id))
+		hbox.add_child(cancel_btn)
 		_queue_container.add_child(hbox)
 
 func _cancel_queue_item(index: int, item_id: String) -> void:

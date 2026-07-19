@@ -6,6 +6,8 @@ const MapData = preload("res://scripts/data/map_data.gd")
 var game_map: Array = []
 var map_width: int = 0
 var map_height: int = 0
+var _last_camera_pos: Vector2 = Vector2.ZERO
+var _last_zoom: Vector2 = Vector2.ONE
 
 func setup_map(map: Array) -> void:
 	if map.is_empty() or map[0].is_empty():
@@ -18,6 +20,15 @@ func setup_map(map: Array) -> void:
 	map_height = map.size()
 	map_width = map[0].size()
 	queue_redraw()
+
+func _process(_delta: float) -> void:
+	# 相机移动或缩放时重绘地图（视口裁剪需要）
+	var camera = get_viewport().get_camera_2d()
+	if camera:
+		if camera.position.distance_to(_last_camera_pos) > 1.0 or camera.zoom != _last_zoom:
+			_last_camera_pos = camera.position
+			_last_zoom = camera.zoom
+			queue_redraw()
 
 func _draw() -> void:
 	if game_map.is_empty():

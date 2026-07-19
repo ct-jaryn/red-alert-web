@@ -83,8 +83,6 @@ func _make_building_decisions() -> void:
 
 func _count_in_queue(item_id: String, p) -> int:
 	var count := 0
-	if p.current_build_item == item_id:
-		count += 1
 	for q in p.build_queue:
 		if q == item_id:
 			count += 1
@@ -114,7 +112,8 @@ func _build_units() -> void:
 				if p.credits >= unit_info.get("cost", 0):
 					GameManager.add_to_build_queue(player_id, unit_id)
 					queued = true
-				break
+					break
+				# 买不起就继续检查下一个可生产的单位
 
 func _order_attack_wave() -> void:
 	var units = get_tree().get_nodes_in_group("units")
@@ -126,12 +125,25 @@ func _order_attack_wave() -> void:
 	var required = 3 + _attack_wave
 	if my_units.size() < required:
 		return
-	var enemy_pos = _find_enemy_base()
+	# 优先查找敌方单位作为目标，其次找敌方建筑
+	var enemy_target: Node2D = null
+	var enemy_pos = Vector2.ZERO
+	var enemy_buildings = get_tree().get_nodes_in_group("buildings")
+	for b in enemy_buildings:
+		if is_instance_valid(b) and b.player_id != player_id:
+			enemy_pos = b.global_position
+			enemy_target = b
+			break
 	if enemy_pos == Vector2.ZERO:
 		return
 	_attack_wave += 1
 	for u in my_units:
-		if is_instance_valid(u) and u.has_method("move_to"):
+		if not is_instance_valid(u):
+			continue
+		# 让单位主动攻击目标，而不是单纯移动
+		if enemy_target and u.has_method("attack_target"):
+			u.attack_target(enemy_target)
+		elif u.has_method("move_to"):
 			var offset = Vector2(randf_range(-80, 80), randf_range(-80, 80))
 			u.move_to(enemy_pos + offset)
 
