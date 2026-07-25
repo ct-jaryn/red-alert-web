@@ -20,6 +20,7 @@ config/icon="res://icon.svg"
 GameManager="*res://scripts/autoload/game_manager.gd"
 UnitRegistry="*res://scripts/autoload/unit_registry.gd"
 AudioManager="*res://scripts/autoload/audio_manager.gd"
+SettingsManager="*res://scripts/autoload/settings_manager.gd"
 FontSetup="*res://scripts/autoload/font_setup.gd"
 
 [gui]

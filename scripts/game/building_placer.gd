@@ -42,7 +42,7 @@ func _create_ghost() -> void:
 	var size_cells = info.get("size", Vector2i(1, 1))
 	var w = size_cells.x * MapData.TILE_SIZE
 	var h = size_cells.y * MapData.TILE_SIZE
-	var tex = SpriteUtilScript.get_texture(current_building_id)
+	var tex = SpriteUtilScript.get_building_texture(current_building_id, _player_id)
 	if tex:
 		var tex_rect = TextureRect.new()
 		tex_rect.custom_minimum_size = Vector2(w, h)
@@ -119,9 +119,10 @@ func try_place() -> bool:
 func _can_place_at(pos: Vector2) -> bool:
 	var info = UnitData.get_unit_info(current_building_id)
 	var size_cells = info.get("size", Vector2i(1, 1))
+	var water_based: bool = info.get("water_based", false)
 	var half_w = size_cells.x * MapData.TILE_SIZE / 2.0
 	var half_h = size_cells.y * MapData.TILE_SIZE / 2.0
-	# 遍历建筑覆盖的所有瓦片，确保全部可通过
+	# 遍历建筑覆盖的所有瓦片：陆地建筑要求可通行，水上建筑要求全部为水域
 	var min_tile_x := int(floor((pos.x - half_w) / MapData.TILE_SIZE))
 	var max_tile_x := int(floor((pos.x + half_w - 0.001) / MapData.TILE_SIZE))
 	var min_tile_y := int(floor((pos.y - half_h) / MapData.TILE_SIZE))
@@ -132,7 +133,11 @@ func _can_place_at(pos: Vector2) -> bool:
 				tx * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0,
 				ty * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0
 			)
-			if not MapData.is_passable(GameManager.get_terrain_at(check_pos)):
+			var terrain = GameManager.get_terrain_at(check_pos)
+			if water_based:
+				if terrain != MapData.TerrainType.WATER:
+					return false
+			elif not MapData.is_passable(terrain):
 				return false
 	var my_rect = Rect2(
 		pos - Vector2(half_w, half_h),
@@ -140,6 +145,8 @@ func _can_place_at(pos: Vector2) -> bool:
 	)
 	var buildings = get_tree().get_nodes_in_group("buildings")
 	var touches_existing := false
+	# 水上建筑离岸施工，邻接判定范围放宽到 3 格
+	var adjacency_grow: float = MapData.TILE_SIZE * (3.0 if water_based else 0.5)
 	for b in buildings:
 		if not is_instance_valid(b):
 			continue
@@ -154,7 +161,7 @@ func _can_place_at(pos: Vector2) -> bool:
 		if b_rect.intersects(my_rect):
 			return false
 		if b.player_id == _player_id:
-			var expanded = b_rect.grow(MapData.TILE_SIZE * 0.5)
+			var expanded = b_rect.grow(adjacency_grow)
 			if expanded.intersects(my_rect):
 				touches_existing = true
 	return touches_existing

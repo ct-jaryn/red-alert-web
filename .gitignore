@@ -18,8 +18,17 @@ desktop.ini
 
 # IDE
 .vscode/
+.qoder/
+.claude/
 *.swp
 *.swo
+
+# 调试截图残留
+screenshot*.png*
+dev_shot_*.png*
+game_loading.png*
+game_menu.png*
+game_started.png*
 
 # Temp
 *.zip

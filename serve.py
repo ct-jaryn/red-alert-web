@@ -25,8 +25,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-class ReuseTCPServer(socketserver.TCPServer):
+class ReuseTCPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
+    daemon_threads = True
 
 if __name__ == "__main__":
     with ReuseTCPServer(("", PORT), Handler) as httpd:

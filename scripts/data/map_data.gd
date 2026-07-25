@@ -1,7 +1,7 @@
 class_name MapData
 extends RefCounted
 
-enum TerrainType { WATER, SAND, GRASS, ORE, ROCK, ROAD }
+enum TerrainType { WATER, SAND, GRASS, ORE, ROCK, ROAD, BRIDGE }
 
 static var TILE_SIZE := 32
 
@@ -24,19 +24,32 @@ static func generate_map(width: int, height: int, seed_val: int) -> Array:
 		return map
 	var rng = RandomNumberGenerator.new()
 	rng.seed = seed_val
+	# 基础地形噪声：低频多层叠加，生成连贯的湖泊/草原/山地区块
+	var base_noise := FastNoiseLite.new()
+	base_noise.seed = seed_val
+	base_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	base_noise.frequency = 0.045
+	base_noise.fractal_octaves = 3
+	base_noise.fractal_lacunarity = 2.2
+	# 矿石噪声：较高频率，在草地上形成成片矿区
+	var ore_noise := FastNoiseLite.new()
+	ore_noise.seed = seed_val + 1337
+	ore_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	ore_noise.frequency = 0.11
 	for y in range(height):
 		var row := []
 		for x in range(width):
-			var noise_val = _simple_noise(x, y, rng)
+			var n = base_noise.get_noise_2d(x, y)
 			var terrain: int
-			if noise_val < 0.2:
+			if n < -0.28:
 				terrain = TerrainType.WATER
-			elif noise_val < 0.35:
+			elif n < -0.18:
 				terrain = TerrainType.SAND
-			elif noise_val < 0.7:
-				terrain = TerrainType.GRASS
-			elif noise_val < 0.8:
-				terrain = TerrainType.ORE
+			elif n < 0.3:
+				if ore_noise.get_noise_2d(x, y) > 0.48:
+					terrain = TerrainType.ORE
+				else:
+					terrain = TerrainType.GRASS
 			else:
 				terrain = TerrainType.ROCK
 			row.append(terrain)
@@ -46,24 +59,18 @@ static func generate_map(width: int, height: int, seed_val: int) -> Array:
 	_force_ore_near_spawns(map, rng)
 	return map
 
-static func _simple_noise(x: int, y: int, rng: RandomNumberGenerator) -> float:
-	var val := 0.0
-	val += sin(x * 0.1 + rng.randf() * 0.5) * 0.3
-	val += cos(y * 0.08 + rng.randf() * 0.3) * 0.3
-	val += sin((x + y) * 0.05) * 0.2
-	val += rng.randf() * 0.2
-	return clampf(val * 0.5 + 0.5, 0.0, 1.0)
-
 static func _add_roads(map: Array, rng: RandomNumberGenerator) -> void:
 	var height = map.size()
 	var width = map[0].size()
 	var mid_y: int = int(floor(height / 2.0))
 	for x in range(width):
-		if map[mid_y][x] != TerrainType.WATER:
-			map[mid_y][x] = TerrainType.ROAD
+		# 道路遇水架桥，保证干道贯通全图
+		map[mid_y][x] = TerrainType.BRIDGE if map[mid_y][x] == TerrainType.WATER else TerrainType.ROAD
 	var mid_x: int = int(floor(width / 2.0))
 	for y in range(height):
-		if map[y][mid_x] != TerrainType.WATER:
+		if map[y][mid_x] == TerrainType.WATER:
+			map[y][mid_x] = TerrainType.BRIDGE
+		elif map[y][mid_x] != TerrainType.BRIDGE:
 			map[y][mid_x] = TerrainType.ROAD
 
 static func _clear_spawn_areas(map: Array) -> void:
@@ -127,12 +134,14 @@ static func get_terrain_color(terrain: int) -> Color:
 			return Color(0.45, 0.42, 0.38)
 		TerrainType.ROAD:
 			return Color(0.35, 0.35, 0.35)
+		TerrainType.BRIDGE:
+			return Color(0.5, 0.42, 0.3)
 		_:
 			return Color(0.2, 0.2, 0.2)
 
 static func is_passable(terrain: int) -> bool:
 	match terrain:
-		TerrainType.GRASS, TerrainType.SAND, TerrainType.ROAD, TerrainType.ORE:
+		TerrainType.GRASS, TerrainType.SAND, TerrainType.ROAD, TerrainType.ORE, TerrainType.BRIDGE:
 			return true
 		_:
 			return false
@@ -141,6 +150,8 @@ static func get_move_cost(terrain: int) -> float:
 	match terrain:
 		TerrainType.ROAD:
 			return 0.5
+		TerrainType.BRIDGE:
+			return 0.6
 		TerrainType.SAND:
 			return 1.5
 		TerrainType.GRASS, TerrainType.ORE:

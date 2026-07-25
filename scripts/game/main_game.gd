@@ -12,6 +12,7 @@ const EffectsScript = preload("res://scripts/game/effects.gd")
 const FogOfWarScript = preload("res://scripts/game/fog_of_war.gd")
 const BuildingScene = preload("res://scenes/buildings/building.tscn")
 const UnitScene = preload("res://scenes/units/unit.tscn")
+const SpriteUtilScript = preload("res://scripts/ui/sprite_util.gd")
 
 var map_renderer: Node2D
 var camera: Camera2D
@@ -96,8 +97,8 @@ func _start_game() -> void:
 	map_renderer.setup_map(GameManager.game_map)
 	hud.setup_minimap(GameManager.game_map)
 	fog_of_war.setup(GameManager.map_width, GameManager.map_height, 0)
-	# 将视口背景设为草地色，避免地图外显示灰色虚空
-	RenderingServer.set_default_clear_color(MapData.get_terrain_color(MapData.TerrainType.GRASS))
+	# 地图外背景用暗色草地色，配合边界描边区分可活动范围
+	RenderingServer.set_default_clear_color(MapData.get_terrain_color(MapData.TerrainType.GRASS).darkened(0.45))
 	_spawn_starting_units()
 	var spawn_points = MapData.find_spawn_points(GameManager.game_map)
 	if spawn_points.size() > 0:
@@ -295,6 +296,7 @@ func _handle_click(pos: Vector2) -> void:
 			GameManager.set_selection([clicked])
 		else:
 			_attack_target(clicked)
+			_spawn_command_marker("target", clicked.global_position)
 	else:
 		GameManager.set_selection([])
 
@@ -315,6 +317,14 @@ func _handle_right_click(pos: Vector2) -> void:
 			continue
 		if entity.player_id == 0:
 			continue
+		# 建筑按实际占地矩形判定，点到哪里都能选中
+		if entity.is_in_group("buildings"):
+			var b_info = UnitData.get_unit_info(entity.unit_id)
+			var bsize = b_info.get("size", Vector2i(1, 1))
+			if abs(entity.global_position.x - pos.x) <= bsize.x * MapData.TILE_SIZE / 2.0 \
+					and abs(entity.global_position.y - pos.y) <= bsize.y * MapData.TILE_SIZE / 2.0:
+				target_enemy = entity
+				break
 		var dist = entity.global_position.distance_to(pos)
 		if dist < best_dist:
 			best_dist = dist
@@ -334,6 +344,29 @@ func _handle_right_click(pos: Vector2) -> void:
 				(i / cols - cols / 2.0) * 30
 			)
 			unit.move_to(pos + offset)
+	# 命令反馈标记：攻击红框 / 移动绿框
+	if target_enemy:
+		_spawn_command_marker("target", target_enemy.global_position)
+	else:
+		_spawn_command_marker("friendly_target", pos)
+
+func _spawn_command_marker(kind: String, pos: Vector2) -> void:
+	var tex = SpriteUtilScript.get_indicator(kind)
+	if not tex:
+		return
+	var marker := Sprite2D.new()
+	marker.texture = tex
+	marker.position = pos
+	marker.z_index = 9
+	var target_size := 40.0
+	var tex_w = maxf(tex.get_width(), 1)
+	marker.scale = Vector2.ONE * (target_size / tex_w)
+	add_child(marker)
+	var tween = marker.create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(marker, "scale", marker.scale * 0.6, 0.5)
+	tween.tween_property(marker, "modulate:a", 0.0, 0.5)
+	tween.chain().tween_callback(marker.queue_free)
 
 func _attack_target(target: Node) -> void:
 	for unit in GameManager.selected_units:

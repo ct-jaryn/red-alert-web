@@ -14,10 +14,13 @@ var _category_tabs: TabContainer
 var _building_ids := [
 	"power_plant", "barracks", "ore_refinery",
 	"war_factory", "radar", "repair_pad",
+	"airfield", "shipyard",
 	"turret_gun", "turret_missile"
 ]
-var _infantry_ids := ["rifle_infantry", "engineer", "rocket_soldier"]
-var _vehicle_ids := ["harvester", "light_tank", "medium_tank", "heavy_tank"]
+var _infantry_ids := ["rifle_infantry", "machine_gunner", "grenadier", "rocket_soldier", "at_squad", "engineer"]
+var _vehicle_ids := ["harvester", "light_tank", "apc", "medium_tank", "heavy_tank", "artillery"]
+var _air_ids := ["fighter", "helicopter", "bomber"]
+var _navy_ids := ["gunboat", "destroyer", "battleship"]
 
 func _ready() -> void:
 	_setup_ui()
@@ -62,6 +65,8 @@ func _setup_ui() -> void:
 	_create_building_tab()
 	_create_infantry_tab()
 	_create_vehicle_tab()
+	_create_list_tab("空军", _air_ids)
+	_create_list_tab("海军", _navy_ids)
 	var queue_label = FontUtilScript.make_label("队列 (右键取消):", 11, Color(0.7, 0.7, 0.7))
 	main_vbox.add_child(queue_label)
 	_queue_container = VBoxContainer.new()
@@ -95,6 +100,16 @@ func _create_vehicle_tab() -> void:
 	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(vbox)
 	for id in _vehicle_ids:
+		_add_build_button(vbox, id)
+
+func _create_list_tab(tab_name: String, ids: Array) -> void:
+	var scroll = ScrollContainer.new()
+	scroll.name = tab_name
+	_category_tabs.add_child(scroll)
+	var vbox = VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(vbox)
+	for id in ids:
 		_add_build_button(vbox, id)
 
 func _add_build_button(parent: Control, item_id: String) -> void:

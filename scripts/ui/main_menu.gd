@@ -1,6 +1,7 @@
 extends Control
 
 const FontUtilScript = preload("res://scripts/ui/font_util.gd")
+const SettingsDialogScript = preload("res://scripts/ui/settings_dialog.gd")
 
 var _title_label: Label
 var _subtitle_label: Label
@@ -218,10 +219,76 @@ func _on_new_game() -> void:
 	get_tree().change_scene_to_file("res://scenes/game/main.tscn")
 
 func _on_settings() -> void:
-	pass
+	var dialog = SettingsDialogScript.new()
+	add_child(dialog)
 
 func _on_exit() -> void:
+	_show_exit_confirm()
+
+func _show_exit_confirm() -> void:
+	var overlay := Control.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 100
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(dim)
+	var panel := PanelContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -190
+	panel.offset_top = -95
+	panel.offset_right = 190
+	panel.offset_bottom = 95
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.03, 0.03, 0.98)
+	style.border_color = Color(0.8, 0.2, 0.15)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(22)
+	panel.add_theme_stylebox_override("panel", style)
+	overlay.add_child(panel)
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 24)
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(vbox)
+	var msg := FontUtilScript.make_label("确定要退出游戏吗？", 20, Color(0.95, 0.85, 0.7))
+	msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(msg)
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 20)
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(btn_row)
+	var yes_btn := _create_menu_button("确定", 140, 44)
+	yes_btn.pressed.connect(_do_exit)
+	btn_row.add_child(yes_btn)
+	var no_btn := _create_menu_button("取消", 140, 44)
+	no_btn.pressed.connect(overlay.queue_free)
+	btn_row.add_child(no_btn)
+	add_child(overlay)
+
+func _do_exit() -> void:
 	if OS.has_feature("web"):
-		JavaScriptBridge.eval("window.close();")
+		# 浏览器安全策略通常禁止脚本关闭用户手动打开的标签页；
+		# 先尝试关闭，失败则显示告别界面兜底。
+		JavaScriptBridge.eval("window.open('', '_self'); window.close();", true)
+		_show_farewell()
 	else:
 		get_tree().quit()
+
+func _show_farewell() -> void:
+	var overlay := ColorRect.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.color = Color(0, 0, 0, 0.96)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 200
+	var label := FontUtilScript.make_label("感谢游玩！\n您可以安全关闭此页面。", 28, Color(0.9, 0.15, 0.1))
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	overlay.add_child(label)
+	add_child(overlay)

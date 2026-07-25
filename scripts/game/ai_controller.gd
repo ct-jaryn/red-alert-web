@@ -24,19 +24,27 @@ var _build_order := [
 	"turret_gun",
 	"turret_gun",
 	"power_plant",
+	"airfield",
+	"turret_missile",
+	"power_plant",
 ]
 
 var _unit_build_order := [
 	"rifle_infantry",
 	"rifle_infantry",
-	"rifle_infantry",
+	"machine_gunner",
 	"harvester",
 	"light_tank",
+	"apc",
 	"medium_tank",
 	"medium_tank",
-	"rifle_infantry",
+	"grenadier",
 	"rocket_soldier",
+	"at_squad",
+	"artillery",
+	"fighter",
 	"heavy_tank",
+	"helicopter",
 ]
 
 func _ready() -> void:

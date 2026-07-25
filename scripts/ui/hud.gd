@@ -5,6 +5,7 @@ const BuildPanelScript = preload("res://scripts/ui/build_panel.gd")
 const MinimapScript = preload("res://scripts/ui/minimap.gd")
 const FontUtilScript = preload("res://scripts/ui/font_util.gd")
 const SpriteUtilScript = preload("res://scripts/ui/sprite_util.gd")
+const SettingsDialogScript = preload("res://scripts/ui/settings_dialog.gd")
 
 var _credits_label: Label
 var _power_label: Label
@@ -17,6 +18,7 @@ var _pause_panel: PanelContainer
 var _resume_btn: Button
 var _game_over_panel: PanelContainer
 var _result_label: Label
+var _result_icon: TextureRect
 var _notification_label: Label
 var _notification_timer: float = 0.0
 var _fps_update_timer: float = 0.0
@@ -133,11 +135,11 @@ func setup_minimap(map: Array) -> void:
 func _setup_pause_panel() -> void:
 	_pause_panel = PanelContainer.new()
 	_pause_panel.set_anchors_preset(Control.PRESET_CENTER)
-	_pause_panel.size = Vector2(320, 160)
+	_pause_panel.size = Vector2(320, 240)
 	_pause_panel.offset_left = -160
-	_pause_panel.offset_top = -80
+	_pause_panel.offset_top = -120
 	_pause_panel.offset_right = 160
-	_pause_panel.offset_bottom = 80
+	_pause_panel.offset_bottom = 120
 	_pause_panel.visible = false
 	_pause_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style = StyleBoxFlat.new()
@@ -159,6 +161,13 @@ func _setup_pause_panel() -> void:
 	_resume_btn.custom_minimum_size = Vector2(200, 40)
 	_resume_btn.pressed.connect(func(): GameManager.toggle_pause())
 	vbox.add_child(_resume_btn)
+	var settings_btn = FontUtilScript.make_button("游戏设置")
+	settings_btn.custom_minimum_size = Vector2(200, 40)
+	settings_btn.pressed.connect(func():
+		var dialog = SettingsDialogScript.new()
+		add_child(dialog)
+	)
+	vbox.add_child(settings_btn)
 	var menu_btn = FontUtilScript.make_button("返回主菜单")
 	menu_btn.custom_minimum_size = Vector2(200, 40)
 	menu_btn.pressed.connect(func():
@@ -190,6 +199,12 @@ func _setup_game_over_panel() -> void:
 	var vbox = VBoxContainer.new()
 	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	_game_over_panel.add_child(vbox)
+	_result_icon = TextureRect.new()
+	_result_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_result_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_result_icon.custom_minimum_size = Vector2(48, 48)
+	_result_icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	vbox.add_child(_result_icon)
 	_result_label = FontUtilScript.make_label("胜利", 36, Color(1, 0.85, 0))
 	_result_label.name = "ResultLabel"
 	_result_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -264,12 +279,18 @@ func _on_game_over(winner_id: int) -> void:
 	if winner_id == 0:
 		_result_label.text = "胜利!"
 		_result_label.add_theme_color_override("font_color", Color(0, 1, 0))
+		_result_icon.texture = SpriteUtilScript.get_indicator("peace")
+		_result_icon.modulate = Color(0.4, 1, 0.5)
 	elif winner_id == -1:
 		_result_label.text = "平局"
 		_result_label.add_theme_color_override("font_color", Color(1, 1, 0))
+		_result_icon.texture = SpriteUtilScript.get_indicator("peace")
+		_result_icon.modulate = Color(1, 1, 0.5)
 	else:
 		_result_label.text = "战败"
 		_result_label.add_theme_color_override("font_color", Color(1, 0, 0))
+		_result_icon.texture = SpriteUtilScript.get_indicator("defeated")
+		_result_icon.modulate = Color(1, 0.4, 0.35)
 
 func _on_game_paused(is_paused: bool) -> void:
 	if _game_over_panel.visible:

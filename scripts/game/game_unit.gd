@@ -7,6 +7,7 @@ const SpriteUtilScript = preload("res://scripts/ui/sprite_util.gd")
 
 var unit_id: String = ""
 var player_id: int = 0
+var move_domain: String = "ground"
 
 var health: int = 100
 var max_health: int = 100
@@ -20,14 +21,20 @@ var _attack_timer: float = 0.0
 var _current_target: Node2D = null
 var _move_target: Vector2 = Vector2.ZERO
 var _is_moving: bool = false
+var _path: PackedVector2Array = PackedVector2Array()
+var _path_index: int = 0
+var _repath_timer: float = 0.0
+var _idle_scan_timer: float = 0.0
 var harvest_capacity: int = 0
 var harvest_rate: float = 2.0
 var _harvest_timer: float = 0.0
 var ore_carried: int = 0
 var _home_refinery: Node = null
 var _sprite_rect: TextureRect
-var _tint_rect: ColorRect
 var _facing: float = 0.0
+var _frames: Array = []
+var _frame_index: int = 0
+var _anim_timer: float = 0.0
 var _health_bar: ProgressBar
 var _selection_ring: Node2D
 var _health_fill: StyleBoxFlat
@@ -39,6 +46,9 @@ func _ready() -> void:
 	add_to_group("units")
 	add_to_group("entities")
 	UnitRegistry.register(self)
+	# 单位间互穿（只与建筑碰撞），避免报团卡死
+	collision_layer = 1
+	collision_mask = 2
 	var info = UnitData.get_unit_info(unit_id)
 	if not info.is_empty():
 		max_health = info.get("health", 100)
@@ -50,6 +60,12 @@ func _ready() -> void:
 		attack_cooldown = info.get("attack_cooldown", 0.5)
 		harvest_capacity = info.get("harvest_capacity", 0)
 		harvest_rate = info.get("harvest_rate", 2.0)
+		move_domain = info.get("domain", "ground")
+	if move_domain == "air":
+		# 空中单位无碰撞、绘制在顶层
+		collision_layer = 0
+		collision_mask = 0
+		z_index = 5
 	_setup_health_bar()
 	_setup_unit_visuals()
 	_move_target = global_position
@@ -72,8 +88,23 @@ func _setup_health_bar() -> void:
 
 func _setup_unit_visuals() -> void:
 	var is_infantry = UnitData.get_unit_info(unit_id).get("type", 0) == UnitData.UnitType.INFANTRY
-	var sz = Vector2(24, 24) if is_infantry else Vector2(32, 28)
-	var tex = SpriteUtilScript.get_texture(unit_id)
+	var sz = Vector2(24, 24) if is_infantry else Vector2(34, 30)
+	if unit_id == "heavy_tank":
+		# 重型坦克用同款坦克精灵放大渲染
+		sz = Vector2(42, 36)
+	elif move_domain == "air":
+		sz = Vector2(38, 32)
+	elif unit_id == "battleship":
+		sz = Vector2(46, 34)
+	elif move_domain == "water":
+		sz = Vector2(40, 30)
+	# 按阵营配色取双帧动画；无映射时回退到静态单图
+	_frames = SpriteUtilScript.get_unit_frames(unit_id, player_id)
+	var tex: Texture2D = null
+	if not _frames.is_empty():
+		tex = _frames[0]
+	else:
+		tex = SpriteUtilScript.get_texture(unit_id)
 	_sprite_rect = TextureRect.new()
 	_sprite_rect.custom_minimum_size = sz
 	_sprite_rect.size = sz
@@ -83,23 +114,23 @@ func _setup_unit_visuals() -> void:
 	if tex:
 		_sprite_rect.texture = tex
 	add_child(_sprite_rect)
-	var tint_color = MapData.get_player_tint(player_id)
-	_tint_rect = ColorRect.new()
-	_tint_rect.size = sz
-	_tint_rect.position = -sz / 2.0
-	_tint_rect.color = tint_color
-	add_child(_tint_rect)
 	_selection_ring = Node2D.new()
 	_selection_ring.visible = false
 	add_child(_selection_ring)
+	var sel_tex = SpriteUtilScript.get_indicator("selection")
 	_selection_ring.draw.connect(func():
-		_selection_ring.draw_rect(
-			Rect2(-sz / 2.0 - Vector2(3, 3), sz + Vector2(6, 6)),
-			Color(0, 1, 0, 0.6), false, 2.0
-		)
+		if sel_tex:
+			# 选择环素材（六边形蓝框），拉伸到单位尺寸
+			var ring_sz = sz * 1.5
+			_selection_ring.draw_texture_rect(sel_tex, Rect2(-ring_sz / 2.0, ring_sz), false, Color(0.3, 1, 0.4))
+		else:
+			_selection_ring.draw_rect(
+				Rect2(-sz / 2.0 - Vector2(3, 3), sz + Vector2(6, 6)),
+				Color(0, 1, 0, 0.6), false, 2.0
+			)
 	)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _health_bar.visible and max_health > 0:
 		var h_ratio = float(health) / float(max_health)
 		_health_bar.value = h_ratio
@@ -109,6 +140,24 @@ func _process(_delta: float) -> void:
 			_health_fill.bg_color = Color(1, 1, 0)
 		else:
 			_health_fill.bg_color = Color(1, 0, 0)
+	# 双帧动画：非空闲状态循环切帧，空闲回首帧
+	if _frames.size() >= 2:
+		if current_state == UnitState.IDLE:
+			if _frame_index != 0:
+				_frame_index = 0
+				_sprite_rect.texture = _frames[0]
+		else:
+			_anim_timer -= delta
+			if _anim_timer <= 0:
+				_anim_timer = 0.22
+				_frame_index = (_frame_index + 1) % 2
+				_sprite_rect.texture = _frames[_frame_index]
+
+## 像素精灵用水平翻转表现朝向（素材默认朝左），避免整体旋转导致"躺平"
+func _update_facing(dir: Vector2) -> void:
+	_facing = dir.angle()
+	if _sprite_rect and absf(dir.x) > 0.1:
+		_sprite_rect.flip_h = dir.x > 0
 
 func _physics_process(delta: float) -> void:
 	match current_state:
@@ -123,30 +172,63 @@ func _physics_process(delta: float) -> void:
 		UnitState.RETURNING_ORE:
 			_process_returning_ore(delta)
 
-func _process_idle(_delta: float) -> void:
+func _process_idle(delta: float) -> void:
 	if harvest_capacity > 0 and _home_refinery and is_instance_valid(_home_refinery):
+		if ore_carried >= harvest_capacity:
+			_return_to_refinery()
+			return
 		var nearest_ore = _find_nearest_ore()
 		if nearest_ore != Vector2.ZERO:
-			_move_target = nearest_ore
-			_is_moving = true
-			current_state = UnitState.MOVING
+			_start_path_move(nearest_ore)
 			return
 	if is_instance_valid(_current_target):
 		var dist = global_position.distance_to(_current_target.global_position)
 		if dist <= attack_range:
 			current_state = UnitState.ATTACKING
 		else:
-			_move_target = _current_target.global_position
-			_is_moving = true
-			current_state = UnitState.MOVING
+			_start_path_move(_current_target.global_position)
+		return
+	# 空闲战斗单位定期扫描附近敌人，主动迎击/防守
+	if attack_damage > 0 and harvest_capacity == 0:
+		_idle_scan_timer -= delta
+		if _idle_scan_timer <= 0:
+			_idle_scan_timer = 0.5
+			var enemy = UnitRegistry.get_nearest_enemy(global_position, player_id, attack_range * 1.5)
+			if enemy:
+				_current_target = enemy
+				current_state = UnitState.ATTACKING
+
+## 请求寻路并进入移动状态（不清除攻击目标，供追击复用）
+func _start_path_move(pos: Vector2) -> void:
+	if move_domain == "air":
+		# 空中单位直线飞行，无视地形
+		_path = PackedVector2Array([pos])
+	else:
+		_path = GameManager.find_path(global_position, pos, move_domain)
+	_path_index = 0
+	_move_target = pos
+	_is_moving = true
+	current_state = UnitState.MOVING
 
 func _process_moving(_delta: float) -> void:
 	if not _is_moving:
 		current_state = UnitState.IDLE
 		return
-	var dir = (_move_target - global_position).normalized()
-	var dist = global_position.distance_to(_move_target)
-	if dist < 5.0:
+	# 追击中进入射程立即开火
+	if is_instance_valid(_current_target) and attack_damage > 0:
+		if global_position.distance_to(_current_target.global_position) <= attack_range:
+			velocity = Vector2.ZERO
+			_is_moving = false
+			current_state = UnitState.ATTACKING
+			return
+	var waypoint := _move_target
+	if _path_index < _path.size():
+		waypoint = _path[_path_index]
+	var dist = global_position.distance_to(waypoint)
+	if dist < 6.0:
+		if _path_index < _path.size() - 1:
+			_path_index += 1
+			return
 		_is_moving = false
 		velocity = Vector2.ZERO
 		if harvest_capacity > 0 and GameManager.is_ore_at(global_position):
@@ -154,27 +236,18 @@ func _process_moving(_delta: float) -> void:
 		else:
 			current_state = UnitState.IDLE
 		return
-	var terrain = GameManager.get_terrain_at(global_position)
-	if not MapData.is_passable(terrain):
-		# 单位在不可通行地形上，尝试移动到附近可通行位置
-		var escape_pos = _find_nearby_passable()
-		if escape_pos != Vector2.ZERO:
-			_move_target = escape_pos
-			var escape_dir = (escape_pos - global_position).normalized()
-			velocity = escape_dir * speed
-			move_and_slide()
-		else:
-			_is_moving = false
-			velocity = Vector2.ZERO
-			current_state = UnitState.IDLE
-		return
-	var cost = MapData.get_move_cost(terrain)
+	var dir = (waypoint - global_position).normalized()
+	var cost := 1.0
+	if move_domain == "ground":
+		var terrain = GameManager.get_terrain_at(global_position)
+		cost = MapData.get_move_cost(terrain)
+		if cost == INF:
+			# 被挤到不可通行地形时按正常速度沿路径脱离
+			cost = 1.0
 	velocity = dir * (speed / cost)
-	_facing = dir.angle()
-	if _sprite_rect:
-		_sprite_rect.rotation = _facing
+	_update_facing(dir)
 	move_and_slide()
-	if attack_range > 0 and harvest_capacity == 0:
+	if attack_range > 0 and harvest_capacity == 0 and not is_instance_valid(_current_target):
 		_check_attack_opportunity()
 
 func _find_nearby_passable() -> Vector2:
@@ -193,13 +266,13 @@ func _process_attacking(delta: float) -> void:
 		current_state = UnitState.IDLE
 		return
 	var dist = global_position.distance_to(_current_target.global_position)
-	_facing = (_current_target.global_position - global_position).angle()
-	if _sprite_rect:
-		_sprite_rect.rotation = _facing
-	if dist > attack_range * 1.2:
-		_move_target = _current_target.global_position
-		_is_moving = true
-		current_state = UnitState.MOVING
+	_update_facing((_current_target.global_position - global_position).normalized())
+	if dist > attack_range * 1.1:
+		# 目标走远，定期重新寻路追击
+		_repath_timer -= delta
+		if _repath_timer <= 0:
+			_repath_timer = 0.5
+			_start_path_move(_current_target.global_position)
 		return
 	_attack_timer -= delta
 	if _attack_timer <= 0:
@@ -223,9 +296,7 @@ func _process_harvesting(delta: float) -> void:
 		else:
 			var nearest_ore = _find_nearest_ore()
 			if nearest_ore != Vector2.ZERO:
-				_move_target = nearest_ore
-				_is_moving = true
-				current_state = UnitState.MOVING
+				_start_path_move(nearest_ore)
 			elif ore_carried > 0:
 				_return_to_refinery()
 			else:
@@ -238,27 +309,32 @@ func _process_returning_ore(_delta: float) -> void:
 			current_state = UnitState.IDLE
 			return
 	var dist = global_position.distance_to(_home_refinery.global_position)
-	if dist < 50.0:
+	if dist < 90.0:
 		GameManager.add_credits(player_id, ore_carried * 50)
 		ore_carried = 0
 		var nearest = _find_nearest_ore()
 		if nearest != Vector2.ZERO:
-			_move_target = nearest
-			_is_moving = true
-			current_state = UnitState.MOVING
+			_start_path_move(nearest)
 		else:
 			current_state = UnitState.IDLE
 		return
-	var dir = (_home_refinery.global_position - global_position).normalized()
-	velocity = dir * speed * 0.8
-	_facing = dir.angle()
-	if _sprite_rect:
-		_sprite_rect.rotation = _facing
+	# 沿寻路路径返回矿厂，避免直线撞障碍卡死
+	var waypoint: Vector2 = _home_refinery.global_position
+	if _path_index < _path.size():
+		waypoint = _path[_path_index]
+		if global_position.distance_to(waypoint) < 6.0:
+			_path_index += 1
+			return
+	var dir = (waypoint - global_position).normalized()
+	velocity = dir * speed * 0.9
+	_update_facing(dir)
 	move_and_slide()
 
 func _return_to_refinery() -> void:
 	_home_refinery = _find_refinery()
 	if _home_refinery:
+		_path = GameManager.find_path(global_position, _home_refinery.global_position)
+		_path_index = 0
 		current_state = UnitState.RETURNING_ORE
 	else:
 		current_state = UnitState.IDLE
@@ -310,6 +386,8 @@ func _fire_at(target: Node2D) -> void:
 	var scene = get_tree().current_scene
 	if scene:
 		scene.add_child(proj)
+		if scene.has_node("Effects"):
+			scene.get_node("Effects").create_muzzle_flash(global_position, Vector2.from_angle(_facing))
 
 func take_damage(amount: int, _attacker: Node = null) -> void:
 	if health <= 0:
@@ -318,6 +396,19 @@ func take_damage(amount: int, _attacker: Node = null) -> void:
 	health -= actual
 	health = maxi(0, health)
 	_health_bar.visible = true
+	# 受击红闪：用 red_mask 素材叠在精灵上短暂显示
+	var mask_tex = SpriteUtilScript.get_indicator("red_mask")
+	if mask_tex and _sprite_rect:
+		var flash := TextureRect.new()
+		flash.texture = mask_tex
+		flash.stretch_mode = TextureRect.STRETCH_SCALE
+		flash.size = _sprite_rect.size
+		flash.position = _sprite_rect.position
+		flash.modulate = Color(1, 1, 1, 0.7)
+		add_child(flash)
+		var tween = flash.create_tween()
+		tween.tween_property(flash, "modulate:a", 0.0, 0.15)
+		tween.tween_callback(flash.queue_free)
 	var main = get_tree().current_scene
 	if main and main.has_node("Effects"):
 		main.get_node("Effects").create_hit_effect(global_position)
@@ -329,6 +420,21 @@ func die() -> void:
 	if main and main.has_node("Effects"):
 		var sz = 1.5 if UnitData.get_unit_info(unit_id).get("type", 0) == UnitData.UnitType.VEHICLE else 0.8
 		main.get_node("Effects").create_explosion(global_position, sz)
+	# 残骸淡出：保留最后一帧灰化渐隐
+	if main and _sprite_rect and _sprite_rect.texture:
+		var corpse := TextureRect.new()
+		corpse.texture = _sprite_rect.texture
+		corpse.flip_h = _sprite_rect.flip_h
+		corpse.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		corpse.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		corpse.size = _sprite_rect.size
+		corpse.position = global_position + _sprite_rect.position
+		corpse.modulate = Color(0.45, 0.4, 0.38, 0.75)
+		corpse.z_index = -1
+		main.add_child(corpse)
+		var tween = corpse.create_tween()
+		tween.tween_property(corpse, "modulate:a", 0.0, 5.0)
+		tween.tween_callback(corpse.queue_free)
 	remove_from_group("units")
 	remove_from_group("entities")
 	GameManager.unregister_unit(self)
@@ -349,10 +455,8 @@ func get_info() -> Dictionary:
 	return UnitData.get_unit_info(unit_id)
 
 func move_to(pos: Vector2) -> void:
-	_move_target = pos
-	_is_moving = true
 	_current_target = null
-	current_state = UnitState.MOVING
+	_start_path_move(pos)
 
 func attack_target(target: Node2D) -> void:
 	if attack_damage <= 0:
@@ -360,13 +464,14 @@ func attack_target(target: Node2D) -> void:
 		move_to(target.global_position)
 		return
 	_current_target = target
-	current_state = UnitState.ATTACKING
+	if global_position.distance_to(target.global_position) <= attack_range:
+		current_state = UnitState.ATTACKING
+	else:
+		_start_path_move(target.global_position)
 
 func set_harvest_target(refinery: Node) -> void:
 	_home_refinery = refinery
 	if harvest_capacity > 0:
 		var nearest_ore = _find_nearest_ore()
 		if nearest_ore != Vector2.ZERO:
-			_move_target = nearest_ore
-			_is_moving = true
-			current_state = UnitState.MOVING
+			_start_path_move(nearest_ore)

@@ -48,6 +48,14 @@ func _ready() -> void:
 		attack_range = info.get("attack_range", 0.0)
 		attack_cooldown = info.get("attack_cooldown", 1.0)
 		can_attack = attack_damage > 0 and attack_range > 0.0
+	# 建筑占用独立碰撞层，碰撞体尺寸匹配实际占地
+	collision_layer = 2
+	collision_mask = 0
+	var shape_node = get_node_or_null("CollisionShape2D")
+	if shape_node and shape_node.shape is RectangleShape2D:
+		var rect_shape = shape_node.shape.duplicate()
+		rect_shape.size = Vector2(size_cells.x, size_cells.y) * MapData.TILE_SIZE
+		shape_node.shape = rect_shape
 	_setup_visuals()
 	_rally_point = global_position + Vector2(0, size_cells.y * MapData.TILE_SIZE / 2.0 + 30)
 	_start_construction()
@@ -55,7 +63,7 @@ func _ready() -> void:
 func _setup_visuals() -> void:
 	var w = size_cells.x * MapData.TILE_SIZE
 	var h = size_cells.y * MapData.TILE_SIZE
-	var tex = SpriteUtilScript.get_texture(unit_id)
+	var tex = SpriteUtilScript.get_building_texture(unit_id, player_id)
 	_sprite_rect = TextureRect.new()
 	_sprite_rect.custom_minimum_size = Vector2(w, h)
 	_sprite_rect.size = Vector2(w, h)
@@ -65,7 +73,19 @@ func _setup_visuals() -> void:
 	if tex:
 		_sprite_rect.texture = tex
 	add_child(_sprite_rect)
-	var tint_color = MapData.get_player_tint(player_id, 0.25)
+	# 功能图标角标：区分同形不同用途的建筑
+	var icon_tex = SpriteUtilScript.get_icon(unit_id)
+	if icon_tex and icon_tex != tex:
+		var icon = TextureRect.new()
+		icon.texture = icon_tex
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		var icon_sz = minf(w, h) * 0.35
+		icon.size = Vector2(icon_sz, icon_sz)
+		icon.position = Vector2(w / 2.0 - icon_sz - 2, h / 2.0 - icon_sz - 2)
+		icon.modulate = Color(1, 1, 1, 0.9)
+		_sprite_rect.add_child(icon)
+	var tint_color = MapData.get_player_tint(player_id, 0.12)
 	_tint_rect = ColorRect.new()
 	_tint_rect.size = Vector2(w, h)
 	_tint_rect.position = Vector2(-w / 2.0, -h / 2.0)
@@ -210,6 +230,10 @@ func set_selected(selected: bool) -> void:
 	_health_bar.visible = selected or health < max_health
 
 func get_rally_point() -> Vector2:
+	# 造船厂集结点在水面，新舰船直接下水
+	var info = UnitData.get_unit_info(unit_id)
+	if info.get("water_based", false):
+		return GameManager.find_nearest_water(_rally_point)
 	return _rally_point
 
 func get_unit_id() -> String:

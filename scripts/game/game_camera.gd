@@ -7,7 +7,7 @@ const MapData = preload("res://scripts/data/map_data.gd")
 @export var edge_scroll_speed: float = 300.0
 @export var edge_scroll_margin: int = 30
 @export var zoom_speed: float = 0.1
-@export var min_zoom: float = 0.3
+@export var min_zoom: float = 0.5
 @export var max_zoom: float = 2.0
 
 var _is_dragging: bool = false
@@ -114,11 +114,11 @@ func _clamp_target(pos: Vector2) -> Vector2:
 	var viewport_size: Vector2 = get_viewport_rect().size / zoom
 	var half_w: float = viewport_size.x / 2.0
 	var half_h: float = viewport_size.y / 2.0
-	# 允许镜头中心超出地图边界最多半屏，既能让基地在边角时居中，也防止滚太远
-	var min_x: float = -half_w
-	var max_x: float = map_w + half_w
-	var min_y: float = -half_h
-	var max_y: float = map_h + half_h
+	# 视口始终贴合地图范围；地图小于视口时居中显示
+	var min_x: float = minf(half_w, map_w / 2.0)
+	var max_x: float = maxf(map_w - half_w, map_w / 2.0)
+	var min_y: float = minf(half_h, map_h / 2.0)
+	var max_y: float = maxf(map_h - half_h, map_h / 2.0)
 	return Vector2(clampf(pos.x, min_x, max_x), clampf(pos.y, min_y, max_y))
 
 func get_visible_rect() -> Rect2:
