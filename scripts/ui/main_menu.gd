@@ -122,6 +122,7 @@ func _setup_ui() -> void:
 	]
 	if GameManager.has_save():
 		btn_data.append({"text": "继续游戏", "action": "_on_continue"})
+	btn_data.append({"text": "地图编辑器", "action": "_on_map_editor"})
 	btn_data.append({"text": "游戏设置", "action": "_on_settings"})
 	btn_data.append({"text": "退出游戏", "action": "_on_exit"})
 	for data in btn_data:
@@ -153,6 +154,8 @@ func _setup_ui() -> void:
 	size_row.add_child(size_label)
 	var size_group := ButtonGroup.new()
 	var size_data := [["小", 0], ["中", 1], ["大", 2]]
+	if GameManager.has_custom_map():
+		size_data.append(["自定义", 3])
 	for sd in size_data:
 		var sb = _create_menu_button(sd[0], btn_w * 0.28, btn_h * 0.75)
 		sb.toggle_mode = true
@@ -256,6 +259,10 @@ func _on_continue() -> void:
 	if GameManager.load_save():
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/game/main.tscn")
+
+func _on_map_editor() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/ui/map_editor.tscn")
 
 func _on_settings() -> void:
 	var dialog = SettingsDialogScript.new()

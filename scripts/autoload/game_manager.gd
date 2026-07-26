@@ -32,6 +32,7 @@ var map_size_option: int = 1
 var pending_load: Dictionary = {}
 
 const SAVE_PATH := "user://savegame.json"
+const CUSTOM_MAP_PATH := "user://custom_map.json"
 const MAP_SIZE_PRESETS := [Vector2i(60, 45), Vector2i(80, 60), Vector2i(104, 78)]
 
 class PlayerData:
@@ -66,9 +67,6 @@ func reset() -> void:
 	pending_building_player = -1
 
 func start_game(num_players: int = 2, seed_val: int = 0) -> void:
-	var preset: Vector2i = MAP_SIZE_PRESETS[clampi(map_size_option, 0, MAP_SIZE_PRESETS.size() - 1)]
-	map_width = preset.x
-	map_height = preset.y
 	if seed_val == 0:
 		seed_val = randi()
 	map_seed = seed_val
@@ -84,7 +82,20 @@ func start_game(num_players: int = 2, seed_val: int = 0) -> void:
 		p.credits = 5000
 		p.faction = 0 if i == 0 else 1
 		players.append(p)
-	game_map = MapData.generate_map(map_width, map_height, map_seed)
+	if map_size_option == 3 and has_custom_map():
+		# 自定义地图开局：自动清理出生点并保证附近有矿
+		game_map = load_custom_map()
+		map_height = game_map.size()
+		map_width = game_map[0].size() if map_height > 0 else 0
+		var rng = RandomNumberGenerator.new()
+		rng.seed = map_seed
+		MapData._clear_spawn_areas(game_map)
+		MapData._force_ore_near_spawns(game_map, rng)
+	else:
+		var preset: Vector2i = MAP_SIZE_PRESETS[clampi(map_size_option, 0, MAP_SIZE_PRESETS.size() - 1)]
+		map_width = preset.x
+		map_height = preset.y
+		game_map = MapData.generate_map(map_width, map_height, map_seed)
 	_setup_pathfinding()
 	current_state = GameState.PLAYING
 	game_started.emit()
@@ -364,6 +375,43 @@ func confirm_building_placement(pos: Vector2) -> void:
 
 func has_save() -> bool:
 	return FileAccess.file_exists(SAVE_PATH)
+
+func has_custom_map() -> bool:
+	return FileAccess.file_exists(CUSTOM_MAP_PATH)
+
+## 保存地图编辑器绘制的自定义地图
+func save_custom_map(map: Array) -> bool:
+	if map.is_empty():
+		return false
+	var rows := []
+	for row in map:
+		var s := ""
+		for t in row:
+			s += str(t)
+		rows.append(s)
+	var f = FileAccess.open(CUSTOM_MAP_PATH, FileAccess.WRITE)
+	if not f:
+		return false
+	f.store_string(JSON.stringify({"map": rows}))
+	return true
+
+## 读取自定义地图；不存在或无效时返回空数组
+func load_custom_map() -> Array:
+	if not has_custom_map():
+		return []
+	var f = FileAccess.open(CUSTOM_MAP_PATH, FileAccess.READ)
+	if not f:
+		return []
+	var parsed = JSON.parse_string(f.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return []
+	var map := []
+	for s in parsed.get("map", []):
+		var row := []
+		for i in range(str(s).length()):
+			row.append(int(str(s)[i]))
+		map.append(row)
+	return map
 
 ## 保存当前对局：地图、玩家经济/队列、全部实体、迷雾探索状态
 func save_game() -> bool:
