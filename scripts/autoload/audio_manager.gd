@@ -7,6 +7,7 @@ const MIX_RATE := 22050
 
 # 音效资源缓存 — 名称 -> AudioStream（启动时程序化合成，无需音频文件）
 var _sfx_cache: Dictionary = {}
+var _music_player: AudioStreamPlayer = null
 
 # 预定义音效路径映射（外部文件可覆盖同名合成音效）
 var _sfx_paths: Dictionary = {
@@ -24,6 +25,7 @@ func _ready() -> void:
 	set_music_volume(music_volume)
 	set_sfx_volume(sfx_volume)
 	_generate_sfx()
+	_generate_music()
 
 ## 程序化合成全部基础音效
 func _generate_sfx() -> void:
@@ -86,6 +88,38 @@ func _gen_hit() -> PackedFloat32Array:
 		var d = 1.0 - float(i) / n
 		samples.append((randf() * 2.0 - 1.0) * 0.25 * d)
 	return samples
+
+## 程序化环境背景音乐：小调和弦循环（低音+和弦垫+琶音），无缝循环播放
+func _generate_music() -> void:
+	var chords := [
+		[220.0, 261.63, 329.63],   # Am
+		[174.61, 220.0, 261.63],   # F
+		[196.0, 246.94, 293.66],   # G
+		[164.81, 196.0, 246.94],   # Em
+	]
+	var chord_dur := 2.4
+	var samples := PackedFloat32Array()
+	for chord in chords:
+		var n = int(chord_dur * MIX_RATE)
+		for i in range(n):
+			var t = float(i) / MIX_RATE
+			var v := 0.0
+			v += sin(TAU * chord[0] * 0.5 * t) * 0.10
+			for f in chord:
+				v += sin(TAU * f * t) * 0.03
+			var arp_idx = int(t * 4.0) % 3
+			var arp_decay = 1.0 - fmod(t * 4.0, 1.0)
+			v += sin(TAU * chord[arp_idx] * 2.0 * t) * 0.05 * arp_decay
+			samples.append(v)
+	var stream = _make_stream(samples)
+	stream.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	stream.loop_begin = 0
+	stream.loop_end = samples.size()
+	_music_player = AudioStreamPlayer.new()
+	_music_player.stream = stream
+	_music_player.bus = "Music"
+	add_child(_music_player)
+	_music_player.play()
 
 func _ensure_bus(bus_name: String) -> void:
 	if AudioServer.get_bus_index(bus_name) == -1:

@@ -119,9 +119,11 @@ func _setup_ui() -> void:
 	var btn_h = _screen_h * 0.06
 	var btn_data := [
 		{"text": "新 游 戏", "action": "_on_new_game"},
-		{"text": "游戏设置", "action": "_on_settings"},
-		{"text": "退出游戏", "action": "_on_exit"},
 	]
+	if GameManager.has_save():
+		btn_data.append({"text": "继续游戏", "action": "_on_continue"})
+	btn_data.append({"text": "游戏设置", "action": "_on_settings"})
+	btn_data.append({"text": "退出游戏", "action": "_on_exit"})
 	for data in btn_data:
 		var btn = _create_menu_button(data["text"], btn_w, btn_h)
 		btn.pressed.connect(Callable(self, data["action"]))
@@ -142,6 +144,22 @@ func _setup_ui() -> void:
 		db.button_pressed = GameManager.ai_difficulty == dd[1]
 		db.pressed.connect(func(): GameManager.ai_difficulty = dd[1])
 		diff_row.add_child(db)
+	# 地图大小选择行
+	var size_row = HBoxContainer.new()
+	size_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	size_row.add_theme_constant_override("separation", 10)
+	_btn_container.add_child(size_row)
+	var size_label = FontUtilScript.make_label("地图:", 15, Color(0.7, 0.6, 0.5))
+	size_row.add_child(size_label)
+	var size_group := ButtonGroup.new()
+	var size_data := [["小", 0], ["中", 1], ["大", 2]]
+	for sd in size_data:
+		var sb = _create_menu_button(sd[0], btn_w * 0.28, btn_h * 0.75)
+		sb.toggle_mode = true
+		sb.button_group = size_group
+		sb.button_pressed = GameManager.map_size_option == sd[1]
+		sb.pressed.connect(func(): GameManager.map_size_option = sd[1])
+		size_row.add_child(sb)
 	var spacer = Control.new()
 	spacer.custom_minimum_size = Vector2(0, _screen_h * 0.05)
 	center.add_child(spacer)
@@ -233,6 +251,11 @@ func _on_new_game() -> void:
 	GameManager.reset()
 	get_tree().paused = false
 	get_tree().change_scene_to_file("res://scenes/game/main.tscn")
+
+func _on_continue() -> void:
+	if GameManager.load_save():
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/game/main.tscn")
 
 func _on_settings() -> void:
 	var dialog = SettingsDialogScript.new()

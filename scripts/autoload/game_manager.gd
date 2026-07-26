@@ -26,6 +26,13 @@ var map_height: int = 60
 var game_map: Array = []
 # AI 难度：1=简单 2=普通 3=困难（主菜单选择，影响 AI 决策频率）
 var ai_difficulty: int = 1
+# 地图尺寸选项：0=小 1=中 2=大（主菜单选择，新游戏时应用）
+var map_size_option: int = 1
+# 待恢复的存档数据（主场景启动时消费）
+var pending_load: Dictionary = {}
+
+const SAVE_PATH := "user://savegame.json"
+const MAP_SIZE_PRESETS := [Vector2i(60, 45), Vector2i(80, 60), Vector2i(104, 78)]
 
 class PlayerData:
 	var id: int
@@ -59,6 +66,9 @@ func reset() -> void:
 	pending_building_player = -1
 
 func start_game(num_players: int = 2, seed_val: int = 0) -> void:
+	var preset: Vector2i = MAP_SIZE_PRESETS[clampi(map_size_option, 0, MAP_SIZE_PRESETS.size() - 1)]
+	map_width = preset.x
+	map_height = preset.y
 	if seed_val == 0:
 		seed_val = randi()
 	map_seed = seed_val
@@ -351,6 +361,102 @@ func confirm_building_placement(pos: Vector2) -> void:
 			register_building(building)
 	pending_building_id = ""
 	pending_building_player = -1
+
+func has_save() -> bool:
+	return FileAccess.file_exists(SAVE_PATH)
+
+## 保存当前对局：地图、玩家经济/队列、全部实体、迷雾探索状态
+func save_game() -> bool:
+	if current_state != GameState.PLAYING and current_state != GameState.PAUSED:
+		return false
+	var data := {}
+	data["map_seed"] = map_seed
+	data["map_width"] = map_width
+	data["map_height"] = map_height
+	data["ai_difficulty"] = ai_difficulty
+	var map_rows := []
+	for row in game_map:
+		var s := ""
+		for t in row:
+			s += str(t)
+		map_rows.append(s)
+	data["map"] = map_rows
+	var players_data := []
+	for p in players:
+		players_data.append({
+			"id": p.id,
+			"type": p.player_type,
+			"credits": p.credits,
+			"queue": p.build_queue,
+			"current_item": p.current_build_item,
+			"progress": p.build_progress,
+			"faction": p.faction,
+			"defeated": p.is_defeated,
+		})
+	data["players"] = players_data
+	var ents := []
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b):
+			ents.append({"kind": "b", "id": b.unit_id, "p": b.player_id, "x": b.global_position.x, "y": b.global_position.y, "hp": b.health})
+	for u in get_tree().get_nodes_in_group("units"):
+		if is_instance_valid(u):
+			ents.append({"kind": "u", "id": u.unit_id, "p": u.player_id, "x": u.global_position.x, "y": u.global_position.y, "hp": u.health, "ore": u.ore_carried})
+	data["entities"] = ents
+	var fog = get_tree().get_first_node_in_group("fog_of_war")
+	if fog and fog.has_method("get_explored_rows"):
+		data["fog"] = fog.get_explored_rows()
+	var f = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if not f:
+		push_warning("GameManager.save_game: 无法写入存档文件")
+		return false
+	f.store_string(JSON.stringify(data))
+	return true
+
+## 读取存档到 pending_load，由主场景启动时恢复
+func load_save() -> bool:
+	if not has_save():
+		return false
+	var f = FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if not f:
+		return false
+	var parsed = JSON.parse_string(f.get_as_text())
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_warning("GameManager.load_save: 存档格式无效")
+		return false
+	pending_load = parsed
+	return true
+
+## 按存档数据恢复全局状态（建筑计数由 register_building 重建）
+func restore_state(data: Dictionary) -> void:
+	map_seed = int(data.get("map_seed", 0))
+	map_width = int(data.get("map_width", 80))
+	map_height = int(data.get("map_height", 60))
+	ai_difficulty = int(data.get("ai_difficulty", 1))
+	players.clear()
+	selected_units.clear()
+	pending_building_id = ""
+	pending_building_player = -1
+	for pd in data.get("players", []):
+		var p = PlayerData.new()
+		p.id = int(pd.get("id", 0))
+		p.player_type = int(pd.get("type", 0))
+		p.credits = int(pd.get("credits", 0))
+		for q in pd.get("queue", []):
+			p.build_queue.append(str(q))
+		p.current_build_item = str(pd.get("current_item", ""))
+		p.build_progress = float(pd.get("progress", 0.0))
+		p.faction = int(pd.get("faction", 0))
+		p.is_defeated = bool(pd.get("defeated", false))
+		players.append(p)
+	game_map = []
+	for s in data.get("map", []):
+		var row := []
+		for i in range(str(s).length()):
+			row.append(int(str(s)[i]))
+		game_map.append(row)
+	_setup_pathfinding()
+	current_state = GameState.PLAYING
+	game_started.emit()
 
 
 

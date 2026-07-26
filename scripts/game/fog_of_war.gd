@@ -107,6 +107,24 @@ func is_explored(world_pos: Vector2) -> bool:
 		return false
 	return _explored[tile.y][tile.x]
 
+## 存档序列化：探索状态按行编码为 "01" 字符串
+func get_explored_rows() -> Array:
+	var rows := []
+	for y in range(_map_height):
+		var s := ""
+		for x in range(_map_width):
+			s += "1" if _explored[y][x] else "0"
+		rows.append(s)
+	return rows
+
+func set_explored_rows(rows: Array) -> void:
+	for y in range(mini(rows.size(), _map_height)):
+		var s: String = str(rows[y])
+		for x in range(mini(s.length(), _map_width)):
+			if s[x] == "1":
+				_explored[y][x] = true
+	queue_redraw()
+
 func _draw() -> void:
 	if _map_width == 0:
 		return

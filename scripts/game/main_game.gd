@@ -93,6 +93,9 @@ func _setup_nodes() -> void:
 	add_child(ai_controller)
 
 func _start_game() -> void:
+	if not GameManager.pending_load.is_empty():
+		_restore_from_save()
+		return
 	GameManager.start_game(2)
 	map_renderer.setup_map(GameManager.game_map)
 	hud.setup_minimap(GameManager.game_map)
@@ -138,6 +141,45 @@ func _spawn_base(pos: Vector2, p_id: int) -> void:
 		GameManager.register_unit(harvester)
 		if ref:
 			harvester.set_harvest_target(ref)
+
+## 从存档恢复对局：地图/玩家/实体/迷雾/镜头
+func _restore_from_save() -> void:
+	var data = GameManager.pending_load
+	GameManager.pending_load = {}
+	GameManager.restore_state(data)
+	map_renderer.setup_map(GameManager.game_map)
+	hud.setup_minimap(GameManager.game_map)
+	fog_of_war.setup(GameManager.map_width, GameManager.map_height, 0)
+	if data.has("fog"):
+		fog_of_war.set_explored_rows(data["fog"])
+	RenderingServer.set_default_clear_color(MapData.get_terrain_color(MapData.TerrainType.GRASS).darkened(0.45))
+	var own_base_pos := Vector2.ZERO
+	for e in data.get("entities", []):
+		var pos = Vector2(float(e.get("x", 0)), float(e.get("y", 0)))
+		var p_id = int(e.get("p", 0))
+		var ent_id = str(e.get("id", ""))
+		if str(e.get("kind", "")) == "b":
+			var b = _create_building(ent_id, p_id, pos)
+			if b:
+				b.health = int(e.get("hp", b.max_health))
+				GameManager.register_building(b)
+				if p_id == 0 and ent_id == "construction_yard":
+					own_base_pos = pos
+		else:
+			var u = _create_unit(ent_id, p_id, pos)
+			if u:
+				u.health = int(e.get("hp", u.max_health))
+				u.ore_carried = int(e.get("ore", 0))
+				GameManager.register_unit(u)
+	# 采矿车重新绑定各自阵营最近的矿厂
+	for u in get_tree().get_nodes_in_group("units"):
+		if is_instance_valid(u) and u.harvest_capacity > 0:
+			var ref = GameManager._find_refinery(u.player_id)
+			if ref:
+				u.set_harvest_target(ref)
+	if own_base_pos != Vector2.ZERO:
+		camera.position = own_base_pos
+		camera._clamp_position()
 
 func _find_passable_pos(pos: Vector2) -> Vector2:
 	var terrain = GameManager.get_terrain_at(pos)
