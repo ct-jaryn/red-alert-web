@@ -89,7 +89,7 @@ func _setup_nodes() -> void:
 	ai_controller = AIControllerScript.new()
 	ai_controller.name = "AIController"
 	ai_controller.player_id = 1
-	ai_controller.difficulty = 1
+	ai_controller.difficulty = GameManager.ai_difficulty
 	add_child(ai_controller)
 
 func _start_game() -> void:
@@ -268,6 +268,8 @@ func _on_selection_finished(rect: Rect2) -> void:
 				continue
 			if rect.has_point(building.global_position):
 				selected.append(building)
+	if not selected.is_empty():
+		AudioManager.play_sfx("select")
 	GameManager.set_selection(selected)
 
 func _handle_click(pos: Vector2) -> void:
@@ -293,6 +295,7 @@ func _handle_click(pos: Vector2) -> void:
 				break
 	if clicked:
 		if clicked.player_id == 0:
+			AudioManager.play_sfx("select")
 			GameManager.set_selection([clicked])
 		else:
 			_attack_target(clicked)

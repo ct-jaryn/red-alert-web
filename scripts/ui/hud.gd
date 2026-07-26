@@ -271,6 +271,7 @@ func _on_construction_complete(player_id: int, item_id: String) -> void:
 	if not info.is_empty():
 		var item_type = "建筑" if info.get("type", -1) == UnitData.UnitType.BUILDING else "单位"
 		_show_notification("%s建造完成: %s" % [item_type, info.get("name", item_id)])
+		AudioManager.play_sfx("build")
 
 func _on_game_over(winner_id: int) -> void:
 	_game_over_panel.visible = true

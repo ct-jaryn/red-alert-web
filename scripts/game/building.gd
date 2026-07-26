@@ -24,6 +24,7 @@ var _rally_point: Vector2 = Vector2.ZERO
 var _construction_timer: float = 0.0
 var _construction_duration: float = 1.0
 var _is_constructing: bool = false
+var _repair_timer: float = 0.0
 
 var _health_bar: ProgressBar
 var _selection_rect: Node2D
@@ -159,6 +160,57 @@ func _physics_process(delta: float) -> void:
 		_attack_timer -= delta
 		if _attack_timer <= 0:
 			_try_attack()
+	# 维修平台：周期性修理附近友方载具（消耗少量金币）
+	if unit_id == "repair_pad" and not _is_constructing and health > 0:
+		_repair_timer -= delta
+		if _repair_timer <= 0:
+			_repair_timer = 0.5
+			_do_repair()
+
+func _do_repair() -> void:
+	for u in UnitRegistry.get_units_in_radius(global_position, 110.0):
+		if not is_instance_valid(u) or not ("player_id" in u):
+			continue
+		if u.player_id != player_id or not u.is_in_group("units"):
+			continue
+		var info = UnitData.get_unit_info(u.unit_id)
+		if info.get("type", -1) != UnitData.UnitType.VEHICLE:
+			continue
+		if u.health >= u.max_health:
+			continue
+		if not GameManager.spend_credits(player_id, 1):
+			return
+		u.health = mini(u.health + 10, u.max_health)
+		var main = get_tree().current_scene
+		if main and main.has_node("Effects"):
+			main.get_node("Effects").create_build_effect(u.global_position, Vector2(20, 20))
+
+## 被工程师占领：所有权、电力、阵营视觉一并转移
+func capture_by(new_owner: int) -> void:
+	if player_id == new_owner or health <= 0:
+		return
+	var old_owner = player_id
+	var p_old = GameManager.get_player(old_owner)
+	if p_old:
+		var count = p_old.built_buildings.get(unit_id, 0)
+		if count <= 1:
+			p_old.built_buildings.erase(unit_id)
+		else:
+			p_old.built_buildings[unit_id] = count - 1
+	player_id = new_owner
+	var p_new = GameManager.get_player(new_owner)
+	if p_new:
+		p_new.built_buildings[unit_id] = p_new.built_buildings.get(unit_id, 0) + 1
+	GameManager.update_power(old_owner)
+	GameManager.update_power(new_owner)
+	_tint_rect.color = MapData.get_player_tint(player_id, 0.12)
+	var tex = SpriteUtilScript.get_building_texture(unit_id, player_id)
+	if tex:
+		_sprite_rect.texture = tex
+	if self in GameManager.selected_units:
+		GameManager.selected_units.erase(self)
+		GameManager.selection_changed.emit(GameManager.selected_units)
+	GameManager.check_game_over()
 
 func _draw_selection() -> void:
 	var w = size_cells.x * MapData.TILE_SIZE
@@ -216,6 +268,7 @@ func take_damage(amount: int, _attacker: Node = null) -> void:
 		die()
 
 func die() -> void:
+	AudioManager.play_sfx("explosion")
 	var main = get_tree().current_scene
 	if main and main.has_node("Effects"):
 		main.get_node("Effects").create_explosion(global_position, 2.0)

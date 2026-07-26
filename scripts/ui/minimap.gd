@@ -13,6 +13,8 @@ var minimap_size: Vector2 = Vector2(180, 140)
 var _texture_rect: TextureRect
 var _camera_indicator: Node2D
 var _unit_dots: Node2D
+var _fog_layer: Node2D
+var _fog_timer: float = 0.0
 var _image: Image
 var _texture: ImageTexture
 var _border: ReferenceRect
@@ -34,6 +36,10 @@ func _ready() -> void:
 	_border.border_width = 2.0
 	_border.editor_only = false
 	add_child(_border)
+	# 迷雾遮罩层：未探索区域在小地图上涂黑
+	_fog_layer = Node2D.new()
+	add_child(_fog_layer)
+	_fog_layer.draw.connect(_draw_fog_overlay)
 	_camera_indicator = Node2D.new()
 	add_child(_camera_indicator)
 	_camera_indicator.draw.connect(func():
@@ -62,6 +68,9 @@ func _ready() -> void:
 		var scale_y = minimap_size.y / (map_height * MapData.TILE_SIZE)
 		for node in get_tree().get_nodes_in_group("entities"):
 			if not is_instance_valid(node):
+				continue
+			if not node.visible:
+				# 被战争迷雾隐藏的敌方实体不上小地图
 				continue
 			if not ("player_id" in node):
 				continue
@@ -101,6 +110,30 @@ func _generate_minimap_image() -> void:
 	_texture = ImageTexture.create_from_image(_image)
 	_texture_rect.texture = _texture
 
+func _draw_fog_overlay() -> void:
+	if game_map.is_empty():
+		return
+	var fog = get_tree().get_first_node_in_group("fog_of_war")
+	if fog == null or not ("_explored" in fog) or fog._explored.is_empty():
+		return
+	var tile_w = minimap_size.x / map_width
+	var tile_h = minimap_size.y / map_height
+	var fog_color = Color(0.02, 0.02, 0.04, 0.95)
+	for y in range(map_height):
+		var row = fog._explored[y]
+		var run_start := -1
+		for x in range(map_width + 1):
+			var unexplored: bool = x < map_width and not row[x]
+			if unexplored and run_start < 0:
+				run_start = x
+			elif not unexplored and run_start >= 0:
+				# 行内连续未探索段合并绘制，减少 draw call
+				_fog_layer.draw_rect(
+					Rect2(run_start * tile_w, y * tile_h, (x - run_start) * tile_w, tile_h),
+					fog_color
+				)
+				run_start = -1
+
 func _process(_delta: float) -> void:
 	# 仅在相机移动时重绘指示器
 	var camera = get_viewport().get_camera_2d()
@@ -111,6 +144,11 @@ func _process(_delta: float) -> void:
 			_camera_indicator.queue_redraw()
 	# 实体标记每帧更新（位置持续变化）
 	_unit_dots.queue_redraw()
+	# 迷雾遮罩低频刷新
+	_fog_timer -= _delta
+	if _fog_timer <= 0:
+		_fog_timer = 0.5
+		_fog_layer.queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:

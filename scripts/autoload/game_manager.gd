@@ -24,6 +24,8 @@ var map_seed: int = 0
 var map_width: int = 80
 var map_height: int = 60
 var game_map: Array = []
+# AI 难度：1=简单 2=普通 3=困难（主菜单选择，影响 AI 决策频率）
+var ai_difficulty: int = 1
 
 class PlayerData:
 	var id: int

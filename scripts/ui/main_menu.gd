@@ -126,6 +126,22 @@ func _setup_ui() -> void:
 		var btn = _create_menu_button(data["text"], btn_w, btn_h)
 		btn.pressed.connect(Callable(self, data["action"]))
 		_btn_container.add_child(btn)
+	# 难度选择行
+	var diff_row = HBoxContainer.new()
+	diff_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	diff_row.add_theme_constant_override("separation", 10)
+	_btn_container.add_child(diff_row)
+	var diff_label = FontUtilScript.make_label("难度:", 15, Color(0.7, 0.6, 0.5))
+	diff_row.add_child(diff_label)
+	var diff_group := ButtonGroup.new()
+	var diff_data := [["简单", 1], ["普通", 2], ["困难", 3]]
+	for dd in diff_data:
+		var db = _create_menu_button(dd[0], btn_w * 0.28, btn_h * 0.75)
+		db.toggle_mode = true
+		db.button_group = diff_group
+		db.button_pressed = GameManager.ai_difficulty == dd[1]
+		db.pressed.connect(func(): GameManager.ai_difficulty = dd[1])
+		diff_row.add_child(db)
 	var spacer = Control.new()
 	spacer.custom_minimum_size = Vector2(0, _screen_h * 0.05)
 	center.add_child(spacer)

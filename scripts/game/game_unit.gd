@@ -221,6 +221,21 @@ func _process_moving(_delta: float) -> void:
 			_is_moving = false
 			current_state = UnitState.ATTACKING
 			return
+	# 工程师接近敌方建筑即占领（自身消耗）
+	if unit_id == "engineer" and is_instance_valid(_current_target) \
+			and _current_target.is_in_group("buildings") and _current_target.player_id != player_id:
+		var b_info = UnitData.get_unit_info(_current_target.unit_id)
+		var bsize = b_info.get("size", Vector2i(1, 1))
+		var capture_dist = maxf(bsize.x, bsize.y) * MapData.TILE_SIZE / 2.0 + 22.0
+		if global_position.distance_to(_current_target.global_position) <= capture_dist:
+			if _current_target.has_method("capture_by"):
+				_current_target.capture_by(player_id)
+				AudioManager.play_sfx("build")
+			remove_from_group("units")
+			remove_from_group("entities")
+			GameManager.unregister_unit(self)
+			queue_free()
+			return
 	var waypoint := _move_target
 	if _path_index < _path.size():
 		waypoint = _path[_path_index]
@@ -311,6 +326,8 @@ func _process_returning_ore(_delta: float) -> void:
 	var dist = global_position.distance_to(_home_refinery.global_position)
 	if dist < 90.0:
 		GameManager.add_credits(player_id, ore_carried * 50)
+		if player_id == 0:
+			AudioManager.play_sfx("harvest")
 		ore_carried = 0
 		var nearest = _find_nearest_ore()
 		if nearest != Vector2.ZERO:
@@ -388,6 +405,7 @@ func _fire_at(target: Node2D) -> void:
 		scene.add_child(proj)
 		if scene.has_node("Effects"):
 			scene.get_node("Effects").create_muzzle_flash(global_position, Vector2.from_angle(_facing))
+	AudioManager.play_sfx("attack")
 
 func take_damage(amount: int, _attacker: Node = null) -> void:
 	if health <= 0:
@@ -416,6 +434,7 @@ func take_damage(amount: int, _attacker: Node = null) -> void:
 		die()
 
 func die() -> void:
+	AudioManager.play_sfx("explosion")
 	var main = get_tree().current_scene
 	if main and main.has_node("Effects"):
 		var sz = 1.5 if UnitData.get_unit_info(unit_id).get("type", 0) == UnitData.UnitType.VEHICLE else 0.8
@@ -460,7 +479,12 @@ func move_to(pos: Vector2) -> void:
 
 func attack_target(target: Node2D) -> void:
 	if attack_damage <= 0:
-		# 无攻击能力的单位（工程师、采矿车等）执行移动到目标位置
+		# 工程师锁定敌方建筑前往占领
+		if unit_id == "engineer" and target.is_in_group("buildings") and target.player_id != player_id:
+			_current_target = target
+			_start_path_move(target.global_position)
+			return
+		# 其余无攻击能力单位（采矿车等）执行移动到目标位置
 		move_to(target.global_position)
 		return
 	_current_target = target
