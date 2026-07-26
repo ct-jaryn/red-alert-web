@@ -24,6 +24,9 @@ var map_seed: int = 0
 var map_width: int = 80
 var map_height: int = 60
 var game_map: Array = []
+# 本地玩家 ID：单机恒为 0；联机时主机=0、客户端=1
+var local_player_id: int = 0
+var _mp_menu_open: bool = false
 # AI 难度：1=简单 2=普通 3=困难（主菜单选择，影响 AI 决策频率）
 var ai_difficulty: int = 1
 # 地图尺寸选项：0=小 1=中 2=大（主菜单选择，新游戏时应用）
@@ -78,7 +81,11 @@ func start_game(num_players: int = 2, seed_val: int = 0) -> void:
 	for i in range(num_players):
 		var p = PlayerData.new()
 		p.id = i
-		p.player_type = PlayerType.AI if i > 0 else PlayerType.HUMAN
+		# 联机对战双方均为人类玩家
+		if NetworkManager.in_match:
+			p.player_type = PlayerType.HUMAN
+		else:
+			p.player_type = PlayerType.AI if i > 0 else PlayerType.HUMAN
 		p.credits = 5000
 		p.faction = 0 if i == 0 else 1
 		players.append(p)
@@ -101,6 +108,11 @@ func start_game(num_players: int = 2, seed_val: int = 0) -> void:
 	game_started.emit()
 
 func toggle_pause() -> void:
+	# 联机时不暂停模拟，仅切换菜单显示
+	if NetworkManager.in_match:
+		_mp_menu_open = not _mp_menu_open
+		game_paused.emit(_mp_menu_open)
+		return
 	if current_state == GameState.PLAYING:
 		current_state = GameState.PAUSED
 		get_tree().paused = true
@@ -165,6 +177,7 @@ func register_building(building: Node) -> void:
 	if p:
 		p.built_buildings[building.unit_id] = p.built_buildings.get(building.unit_id, 0) + 1
 	_set_building_tiles_solid(building, true)
+	NetworkManager.track_entity(building)
 	update_power(building.player_id)
 	building_placed.emit(building)
 
@@ -186,6 +199,7 @@ func unregister_building(building: Node) -> void:
 	check_game_over()
 
 func register_unit(unit: Node) -> void:
+	NetworkManager.track_entity(unit)
 	unit_created.emit(unit)
 
 func unregister_unit(unit: Node) -> void:
@@ -237,6 +251,9 @@ func _process(delta: float) -> void:
 		return
 	if get_tree().paused:
 		return
+	# 联机客户端不跑本地模拟，建造进度由主机快照同步
+	if NetworkManager.is_client():
+		return
 	for p in players:
 		if p.current_build_item.is_empty():
 			continue
@@ -273,9 +290,13 @@ func _spawn_completed_item(player_id: int, item_id: String) -> void:
 		else:
 			pending_building_player = player_id
 			pending_building_id = item_id
-			var main = get_tree().current_scene
-			if main and main.has_method("_on_building_ready_to_place"):
-				main._on_building_ready_to_place(player_id, item_id)
+			if NetworkManager.mode == NetworkManager.Mode.HOST and player_id == 1:
+				# 远端玩家的建筑就绪，通知其进入放置模式
+				NetworkManager.notify_ready_to_place(item_id)
+			else:
+				var main = get_tree().current_scene
+				if main and main.has_method("_on_building_ready_to_place"):
+					main._on_building_ready_to_place(player_id, item_id)
 		return
 	var base_pos = Vector2.ZERO
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -325,6 +346,9 @@ func _find_refinery(player_id: int) -> Node:
 func check_game_over() -> void:
 	if current_state == GameState.GAME_OVER:
 		return
+	# 联机客户端不做胜负判定，由主机同步结果
+	if NetworkManager.is_client():
+		return
 	var tree = get_tree()
 	if not tree:
 		return
@@ -344,6 +368,7 @@ func check_game_over() -> void:
 		var winner = alive_players[0] if alive_players.size() == 1 else -1
 		current_state = GameState.GAME_OVER
 		game_over.emit(winner)
+		NetworkManager.on_host_game_over(winner)
 
 func get_terrain_at(world_pos: Vector2) -> int:
 	var tile = MapData.world_to_tile(world_pos)
@@ -359,6 +384,7 @@ func harvest_ore(world_pos: Vector2) -> bool:
 	if tile.x >= 0 and tile.x < map_width and tile.y >= 0 and tile.y < map_height:
 		if game_map[tile.y][tile.x] == MapData.TerrainType.ORE:
 			game_map[tile.y][tile.x] = MapData.TerrainType.GRASS
+			NetworkManager.report_tile_change(tile, MapData.TerrainType.GRASS)
 			return true
 	return false
 
@@ -413,8 +439,10 @@ func load_custom_map() -> Array:
 		map.append(row)
 	return map
 
-## 保存当前对局：地图、玩家经济/队列、全部实体、迷雾探索状态
+## 保存当前对局：地图、玩家经济/队列、全部实体、迷雾探索状态（联机不支持）
 func save_game() -> bool:
+	if NetworkManager.in_match:
+		return false
 	if current_state != GameState.PLAYING and current_state != GameState.PAUSED:
 		return false
 	var data := {}

@@ -122,6 +122,7 @@ func _setup_ui() -> void:
 	]
 	if GameManager.has_save():
 		btn_data.append({"text": "继续游戏", "action": "_on_continue"})
+	btn_data.append({"text": "多人对战", "action": "_on_multiplayer"})
 	btn_data.append({"text": "地图编辑器", "action": "_on_map_editor"})
 	btn_data.append({"text": "游戏设置", "action": "_on_settings"})
 	btn_data.append({"text": "退出游戏", "action": "_on_exit"})
@@ -263,6 +264,79 @@ func _on_continue() -> void:
 func _on_map_editor() -> void:
 	get_tree().paused = false
 	get_tree().change_scene_to_file("res://scenes/ui/map_editor.tscn")
+
+## 联机大厅：创建主机 / 输入地址加入
+func _on_multiplayer() -> void:
+	var overlay := Control.new()
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 100
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(dim)
+	var panel := PanelContainer.new()
+	panel.anchor_left = 0.5
+	panel.anchor_top = 0.5
+	panel.anchor_right = 0.5
+	panel.anchor_bottom = 0.5
+	panel.offset_left = -240
+	panel.offset_top = -170
+	panel.offset_right = 240
+	panel.offset_bottom = 170
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.06, 0.03, 0.03, 0.98)
+	style.border_color = Color(0.8, 0.2, 0.15)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(4)
+	style.set_content_margin_all(22)
+	panel.add_theme_stylebox_override("panel", style)
+	overlay.add_child(panel)
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	panel.add_child(vbox)
+	var title := FontUtilScript.make_label("多 人 对 战", 24, Color(0.9, 0.15, 0.1))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(title)
+	var status := FontUtilScript.make_label("主机创建房间，另一名玩家输入主机地址加入", 13, Color(0.7, 0.7, 0.6))
+	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(status)
+	var status_cb := func(text: String): status.text = text
+	NetworkManager.net_status.connect(status_cb)
+	vbox.add_child(HSeparator.new())
+	var host_btn := _create_menu_button("创建主机 (端口 %d)" % NetworkManager.DEFAULT_PORT, 300, 42)
+	if OS.has_feature("web"):
+		# 浏览器无法监听端口，网页端只能作为客户端加入
+		host_btn.disabled = true
+		host_btn.text = "创建主机（需桌面版，网页端仅可加入）"
+	host_btn.pressed.connect(func():
+		NetworkManager.host_game()
+	)
+	vbox.add_child(host_btn)
+	var join_row := HBoxContainer.new()
+	join_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(join_row)
+	var addr_edit := LineEdit.new()
+	addr_edit.text = "ws://127.0.0.1:%d" % NetworkManager.DEFAULT_PORT
+	addr_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	addr_edit.add_theme_font_override("font", FontUtilScript.get_font())
+	join_row.add_child(addr_edit)
+	var join_btn := _create_menu_button("加入", 90, 40)
+	join_btn.pressed.connect(func():
+		NetworkManager.join_game(addr_edit.text.strip_edges())
+	)
+	join_row.add_child(join_btn)
+	var close_btn := _create_menu_button("关闭", 140, 40)
+	close_btn.pressed.connect(func():
+		NetworkManager.net_status.disconnect(status_cb)
+		if not NetworkManager.in_match:
+			NetworkManager.leave()
+		overlay.queue_free()
+	)
+	vbox.add_child(close_btn)
+	add_child(overlay)
 
 func _on_settings() -> void:
 	var dialog = SettingsDialogScript.new()

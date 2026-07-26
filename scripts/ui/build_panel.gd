@@ -150,7 +150,11 @@ func _on_build_button_pressed(item_id: String) -> void:
 		return
 	if p.credits < info.get("cost", 0):
 		return
-	GameManager.add_to_build_queue(player_id, item_id)
+	if NetworkManager.is_client():
+		# 联机客户端：建造请求发给主机
+		NetworkManager.send_build(item_id)
+	else:
+		GameManager.add_to_build_queue(player_id, item_id)
 
 func _on_construction_complete(p_id: int, item_id: String) -> void:
 	if p_id != player_id:
@@ -191,6 +195,9 @@ func _cancel_queue_item(index: int, item_id: String) -> void:
 	if not p:
 		return
 	if index < 0 or index >= p.build_queue.size():
+		return
+	if NetworkManager.is_client():
+		NetworkManager.send_cancel_queue(index, item_id)
 		return
 	var info = UnitData.get_unit_info(item_id)
 	var refund = info.get("cost", 0)

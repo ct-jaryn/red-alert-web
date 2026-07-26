@@ -75,7 +75,7 @@ func _ready() -> void:
 			if not ("player_id" in node):
 				continue
 			var color: Color
-			if node.player_id == 0:
+			if node.player_id == GameManager.local_player_id:
 				color = Color(0, 0.5, 1)
 			else:
 				color = Color(1, 0.2, 0)

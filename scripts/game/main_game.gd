@@ -86,26 +86,30 @@ func _setup_nodes() -> void:
 	hud = HUDScript.new()
 	hud.name = "HUD"
 	add_child(hud)
-	ai_controller = AIControllerScript.new()
-	ai_controller.name = "AIController"
-	ai_controller.player_id = 1
-	ai_controller.difficulty = GameManager.ai_difficulty
-	add_child(ai_controller)
+	if not NetworkManager.in_match:
+		ai_controller = AIControllerScript.new()
+		ai_controller.name = "AIController"
+		ai_controller.player_id = 1
+		ai_controller.difficulty = GameManager.ai_difficulty
+		add_child(ai_controller)
 
 func _start_game() -> void:
 	if not GameManager.pending_load.is_empty():
 		_restore_from_save()
 		return
-	GameManager.start_game(2)
+	# 联机：双方用同一种子确定性生成地图；仅主机生成初始单位
+	GameManager.start_game(2, NetworkManager.match_seed if NetworkManager.in_match else 0)
 	map_renderer.setup_map(GameManager.game_map)
 	hud.setup_minimap(GameManager.game_map)
-	fog_of_war.setup(GameManager.map_width, GameManager.map_height, 0)
+	fog_of_war.setup(GameManager.map_width, GameManager.map_height, GameManager.local_player_id)
 	# 地图外背景用暗色草地色，配合边界描边区分可活动范围
 	RenderingServer.set_default_clear_color(MapData.get_terrain_color(MapData.TerrainType.GRASS).darkened(0.45))
-	_spawn_starting_units()
+	if not NetworkManager.is_client():
+		_spawn_starting_units()
 	var spawn_points = MapData.find_spawn_points(GameManager.game_map)
+	var cam_idx = mini(GameManager.local_player_id, spawn_points.size() - 1)
 	if spawn_points.size() > 0:
-		var sp = spawn_points[0]
+		var sp = spawn_points[cam_idx]
 		var base_pos = Vector2(sp.x * MapData.TILE_SIZE, sp.y * MapData.TILE_SIZE)
 		camera.position = base_pos
 		camera._clamp_position()
@@ -213,7 +217,11 @@ func _create_unit(unit_id: String, p_id: int, pos: Vector2) -> Node:
 	return unit
 
 func _on_building_placed(building_id: String, pos: Vector2) -> void:
-	GameManager.confirm_building_placement(pos)
+	if NetworkManager.is_client():
+		# 客户端：放置请求交由主机校验落地
+		NetworkManager.send_place(building_id, pos)
+	else:
+		GameManager.confirm_building_placement(pos)
 	var info = UnitData.get_unit_info(building_id)
 	var bsize = info.get("size", Vector2i(1, 1))
 	effects.create_build_effect(pos, Vector2(bsize.x * MapData.TILE_SIZE, bsize.y * MapData.TILE_SIZE))
@@ -223,6 +231,9 @@ func _on_building_ready_to_place(player_id: int, building_id: String) -> void:
 		building_placer.start_placement(building_id, player_id)
 
 func _on_placement_cancelled(building_id: String) -> void:
+	if NetworkManager.is_client():
+		NetworkManager.send_cancel_place(building_id)
+		return
 	if GameManager.pending_building_player < 0:
 		return
 	var info = UnitData.get_unit_info(building_id)
@@ -295,10 +306,11 @@ func _on_selection_finished(rect: Rect2) -> void:
 		_handle_click(rect.position)
 		return
 	var selected := []
+	var lp = GameManager.local_player_id
 	for unit in get_tree().get_nodes_in_group("units"):
 		if not is_instance_valid(unit):
 			continue
-		if unit.player_id != 0:
+		if unit.player_id != lp:
 			continue
 		if rect.has_point(unit.global_position):
 			selected.append(unit)
@@ -306,7 +318,7 @@ func _on_selection_finished(rect: Rect2) -> void:
 		for building in get_tree().get_nodes_in_group("buildings"):
 			if not is_instance_valid(building):
 				continue
-			if building.player_id != 0:
+			if building.player_id != lp:
 				continue
 			if rect.has_point(building.global_position):
 				selected.append(building)
@@ -336,7 +348,7 @@ func _handle_click(pos: Vector2) -> void:
 				clicked = building
 				break
 	if clicked:
-		if clicked.player_id == 0:
+		if clicked.player_id == GameManager.local_player_id:
 			AudioManager.play_sfx("select")
 			GameManager.set_selection([clicked])
 		else:
@@ -360,7 +372,7 @@ func _handle_right_click(pos: Vector2) -> void:
 	for entity in get_tree().get_nodes_in_group("entities"):
 		if not is_instance_valid(entity):
 			continue
-		if entity.player_id == 0:
+		if entity.player_id == GameManager.local_player_id:
 			continue
 		# 建筑按实际占地矩形判定，点到哪里都能选中
 		if entity.is_in_group("buildings"):
@@ -374,21 +386,33 @@ func _handle_right_click(pos: Vector2) -> void:
 		if dist < best_dist:
 			best_dist = dist
 			target_enemy = entity
-	for i in range(GameManager.selected_units.size()):
-		var unit = GameManager.selected_units[i]
-		if not is_instance_valid(unit):
-			continue
-		if not unit.has_method("move_to"):
-			continue
-		if target_enemy and unit.has_method("attack_target"):
-			unit.attack_target(target_enemy)
-		else:
-			var cols = ceili(sqrt(GameManager.selected_units.size()))
-			var offset = Vector2(
-				(i % cols - cols / 2.0) * 30,
-				(i / cols - cols / 2.0) * 30
-			)
-			unit.move_to(pos + offset)
+	# 联机客户端：指令发送给主机执行（本地镜像不模拟）
+	if NetworkManager.is_client():
+		var ids := []
+		for u in GameManager.selected_units:
+			if is_instance_valid(u) and u.has_meta("net_id") and u.is_in_group("units"):
+				ids.append(u.get_meta("net_id"))
+		if not ids.is_empty():
+			if target_enemy and target_enemy.has_meta("net_id"):
+				NetworkManager.send_attack(ids, target_enemy.get_meta("net_id"))
+			else:
+				NetworkManager.send_move(ids, pos)
+	else:
+		for i in range(GameManager.selected_units.size()):
+			var unit = GameManager.selected_units[i]
+			if not is_instance_valid(unit):
+				continue
+			if not unit.has_method("move_to"):
+				continue
+			if target_enemy and unit.has_method("attack_target"):
+				unit.attack_target(target_enemy)
+			else:
+				var cols = ceili(sqrt(GameManager.selected_units.size()))
+				var offset = Vector2(
+					(i % cols - cols / 2.0) * 30,
+					(i / cols - cols / 2.0) * 30
+				)
+				unit.move_to(pos + offset)
 	# 命令反馈标记：攻击红框 / 移动绿框
 	if target_enemy:
 		_spawn_command_marker("target", target_enemy.global_position)
@@ -414,6 +438,14 @@ func _spawn_command_marker(kind: String, pos: Vector2) -> void:
 	tween.chain().tween_callback(marker.queue_free)
 
 func _attack_target(target: Node) -> void:
+	if NetworkManager.is_client():
+		var ids := []
+		for u in GameManager.selected_units:
+			if is_instance_valid(u) and u.has_meta("net_id") and u.is_in_group("units"):
+				ids.append(u.get_meta("net_id"))
+		if not ids.is_empty() and target.has_meta("net_id"):
+			NetworkManager.send_attack(ids, target.get_meta("net_id"))
+		return
 	for unit in GameManager.selected_units:
 		if is_instance_valid(unit) and unit.has_method("attack_target"):
 			unit.attack_target(target)

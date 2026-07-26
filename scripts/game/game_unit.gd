@@ -406,6 +406,7 @@ func _fire_at(target: Node2D) -> void:
 		if scene.has_node("Effects"):
 			scene.get_node("Effects").create_muzzle_flash(global_position, Vector2.from_angle(_facing))
 	AudioManager.play_sfx("attack")
+	NetworkManager.broadcast_fire(global_position, target.global_position)
 
 func take_damage(amount: int, _attacker: Node = null) -> void:
 	if health <= 0:

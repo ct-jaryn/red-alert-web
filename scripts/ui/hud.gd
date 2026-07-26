@@ -110,7 +110,7 @@ func _setup_ui() -> void:
 	_build_panel.offset_top = 10
 	_build_panel.offset_right = -10
 	_build_panel.offset_bottom = -10
-	_build_panel.player_id = 0
+	_build_panel.player_id = GameManager.local_player_id
 	add_child(_build_panel)
 
 	_minimap = MinimapScript.new()
@@ -181,6 +181,7 @@ func _setup_pause_panel() -> void:
 	var menu_btn = FontUtilScript.make_button("返回主菜单")
 	menu_btn.custom_minimum_size = Vector2(200, 40)
 	menu_btn.pressed.connect(func():
+		NetworkManager.leave()
 		GameManager.reset()
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
@@ -222,7 +223,9 @@ func _setup_game_over_panel() -> void:
 	var restart_btn = FontUtilScript.make_button("重新开始")
 	restart_btn.custom_minimum_size = Vector2(200, 45)
 	restart_btn.pressed.connect(func():
+		NetworkManager.leave()
 		GameManager.reset()
+		GameManager.local_player_id = 0
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/game/main.tscn")
 	)
@@ -230,7 +233,9 @@ func _setup_game_over_panel() -> void:
 	var menu_btn = FontUtilScript.make_button("返回主菜单")
 	menu_btn.custom_minimum_size = Vector2(200, 45)
 	menu_btn.pressed.connect(func():
+		NetworkManager.leave()
 		GameManager.reset()
+		GameManager.local_player_id = 0
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 	)
@@ -242,11 +247,11 @@ func _show_notification(text: String, duration: float = 3.0) -> void:
 	_notification_timer = duration
 
 func _on_credits_changed(player_id: int, amount: int) -> void:
-	if player_id == 0:
+	if player_id == GameManager.local_player_id:
 		_credits_label.text = "金币: %d" % amount
 
 func _on_power_changed(player_id: int, generated: int, used: int) -> void:
-	if player_id == 0:
+	if player_id == GameManager.local_player_id:
 		_power_label.text = "电力: %d/%d" % [generated, used]
 		if generated < used:
 			_power_label.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
@@ -275,7 +280,7 @@ func _on_selection_changed(selected: Array) -> void:
 	_info_label.text = text
 
 func _on_construction_complete(player_id: int, item_id: String) -> void:
-	if player_id != 0:
+	if player_id != GameManager.local_player_id:
 		return
 	var info = UnitData.get_unit_info(item_id)
 	if not info.is_empty():
@@ -287,7 +292,7 @@ func _on_game_over(winner_id: int) -> void:
 	_game_over_panel.visible = true
 	_pause_panel.visible = false
 	get_tree().paused = true
-	if winner_id == 0:
+	if winner_id == GameManager.local_player_id:
 		_result_label.text = "胜利!"
 		_result_label.add_theme_color_override("font_color", Color(0, 1, 0))
 		_result_icon.texture = SpriteUtilScript.get_indicator("peace")

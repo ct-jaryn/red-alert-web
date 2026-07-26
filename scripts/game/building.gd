@@ -256,6 +256,7 @@ func _fire_at(target: Node2D) -> void:
 	var scene = get_tree().current_scene
 	if scene:
 		scene.add_child(proj)
+	NetworkManager.broadcast_fire(global_position, target.global_position)
 
 func take_damage(amount: int, _attacker: Node = null) -> void:
 	if health <= 0:
