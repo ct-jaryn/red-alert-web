@@ -12,6 +12,7 @@ var _build_timer: float = 0.0
 var _attack_timer: float = 0.0
 var _attack_wave: int = 0
 var _build_target_counts: Dictionary = {}
+var _unit_order_index: int = 0
 
 var _build_order := [
 	"power_plant",
@@ -100,28 +101,30 @@ func _build_units() -> void:
 	var p = GameManager.get_player(player_id)
 	if not p:
 		return
-	# 每轮最多入队一个单位，避免多生产者爆队列
-	var queued := false
-	var producers = get_tree().get_nodes_in_group("buildings")
-	for producer in producers:
-		if queued:
-			break
-		if not is_instance_valid(producer):
+	# 队列积压时不再入队，给建筑决策留出窗口，避免 AI 发展停滞
+	if p.build_queue.size() >= 2:
+		return
+	# 收集当前可生产的单位集合
+	var producible := {}
+	for producer in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(producer) or producer.player_id != player_id:
 			continue
-		if producer.player_id != player_id:
+		for uid in UnitData.get_unit_info(producer.unit_id).get("produces", []):
+			if UnitData.units.has(uid):
+				producible[uid] = true
+	if producible.is_empty():
+		return
+	# 轮转生产序列：从上次位置继续，保证兵种多样性
+	for attempt in range(_unit_build_order.size()):
+		var idx = (_unit_order_index + attempt) % _unit_build_order.size()
+		var unit_id = _unit_build_order[idx]
+		if not producible.has(unit_id):
 			continue
-		var info = UnitData.get_unit_info(producer.unit_id)
-		var can_produce = info.get("produces", [])
-		if can_produce.is_empty():
-			continue
-		for unit_id in _unit_build_order:
-			if unit_id in can_produce:
-				var unit_info = UnitData.get_unit_info(unit_id)
-				if p.credits >= unit_info.get("cost", 0):
-					GameManager.add_to_build_queue(player_id, unit_id)
-					queued = true
-					break
-				# 买不起就继续检查下一个可生产的单位
+		var unit_info = UnitData.get_unit_info(unit_id)
+		if p.credits >= unit_info.get("cost", 0):
+			GameManager.add_to_build_queue(player_id, unit_id)
+			_unit_order_index = (idx + 1) % _unit_build_order.size()
+			return
 
 func _order_attack_wave() -> void:
 	var units = get_tree().get_nodes_in_group("units")
