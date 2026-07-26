@@ -1,3 +1,4 @@
+class_name GameUnit
 extends CharacterBody2D
 
 const MapData = preload("res://scripts/data/map_data.gd")
@@ -27,6 +28,7 @@ var _repath_timer: float = 0.0
 var _idle_scan_timer: float = 0.0
 var harvest_capacity: int = 0
 var harvest_rate: float = 2.0
+var can_capture: bool = false
 var _harvest_timer: float = 0.0
 var ore_carried: int = 0
 var _home_refinery: Node = null
@@ -35,6 +37,7 @@ var _facing: float = 0.0
 var _frames: Array = []
 var _frame_index: int = 0
 var _anim_timer: float = 0.0
+var _puppet_target_pos: Vector2 = Vector2.ZERO   # 联机镜像平滑插值目标
 var _health_bar: ProgressBar
 var _selection_ring: Node2D
 var _health_fill: StyleBoxFlat
@@ -60,6 +63,7 @@ func _ready() -> void:
 		attack_cooldown = info.get("attack_cooldown", 0.5)
 		harvest_capacity = info.get("harvest_capacity", 0)
 		harvest_rate = info.get("harvest_rate", 2.0)
+		can_capture = info.get("can_capture", false)
 		move_domain = info.get("domain", "ground")
 	if move_domain == "air":
 		# 空中单位无碰撞、绘制在顶层
@@ -71,33 +75,24 @@ func _ready() -> void:
 	_move_target = global_position
 
 func _setup_health_bar() -> void:
-	_health_bar = ProgressBar.new()
-	_health_bar.size = Vector2(40, 4)
-	_health_bar.position = Vector2(-20, -30)
-	_health_bar.max_value = 1.0
-	_health_bar.value = 1.0
-	_health_bar.show_percentage = false
-	var bg_style = StyleBoxFlat.new()
-	bg_style.bg_color = Color(0.2, 0.2, 0.2)
-	_health_bar.add_theme_stylebox_override("background", bg_style)
-	_health_fill = StyleBoxFlat.new()
-	_health_fill.bg_color = Color(0, 1, 0)
-	_health_bar.add_theme_stylebox_override("fill", _health_fill)
+	var hb = EntityCommon.create_health_bar(40.0, Vector2(-20, -30))
+	_health_bar = hb["bar"]
+	_health_fill = hb["fill"]
 	add_child(_health_bar)
-	_health_bar.visible = false
 
 func _setup_unit_visuals() -> void:
-	var is_infantry = UnitData.get_unit_info(unit_id).get("type", 0) == UnitData.UnitType.INFANTRY
-	var sz = Vector2(24, 24) if is_infantry else Vector2(34, 30)
-	if unit_id == "heavy_tank":
-		# 重型坦克用同款坦克精灵放大渲染
-		sz = Vector2(42, 36)
-	elif move_domain == "air":
-		sz = Vector2(38, 32)
-	elif unit_id == "battleship":
-		sz = Vector2(46, 34)
-	elif move_domain == "water":
-		sz = Vector2(40, 30)
+	var info = UnitData.get_unit_info(unit_id)
+	# 精灵尺寸数据驱动：优先取 sprite_size 字段，缺省按兵种/域推断
+	var sz: Vector2 = info.get("sprite_size", Vector2.ZERO)
+	if sz == Vector2.ZERO:
+		if info.get("type", 0) == UnitData.UnitType.INFANTRY:
+			sz = Vector2(24, 24)
+		elif move_domain == "air":
+			sz = Vector2(38, 32)
+		elif move_domain == "water":
+			sz = Vector2(40, 30)
+		else:
+			sz = Vector2(34, 30)
 	# 按阵营配色取双帧动画；无映射时回退到静态单图
 	_frames = SpriteUtilScript.get_unit_frames(unit_id, player_id)
 	var tex: Texture2D = null
@@ -131,18 +126,26 @@ func _setup_unit_visuals() -> void:
 	)
 
 func _process(delta: float) -> void:
-	if _health_bar.visible and max_health > 0:
-		var h_ratio = float(health) / float(max_health)
-		_health_bar.value = h_ratio
-		if h_ratio > 0.6:
-			_health_fill.bg_color = Color(0, 1, 0)
-		elif h_ratio > 0.3:
-			_health_fill.bg_color = Color(1, 1, 0)
-		else:
-			_health_fill.bg_color = Color(1, 0, 0)
-	# 双帧动画：非空闲状态循环切帧，空闲回首帧
+	# 联机镜像单位：向快照目标位置平滑插值，消除 0.15s 快照间隔的瞬移顿挫
+	if has_meta("puppet"):
+		if _puppet_target_pos != Vector2.ZERO:
+			var prev = global_position
+			global_position = global_position.lerp(_puppet_target_pos, clampf(delta * 12.0, 0.0, 1.0))
+			var mv = _puppet_target_pos - prev
+			if absf(mv.x) > 0.5 and _sprite_rect:
+				_sprite_rect.flip_h = mv.x > 0
+		# 镜像单位低于满血或选中时显示血条
+		_health_bar.visible = is_selected or health < max_health
+	if _health_bar.visible:
+		EntityCommon.update_health_bar(_health_bar, _health_fill, health, max_health)
+	# 双帧动画：非空闲状态循环切帧，空闲回首帧；镜像单位按是否移动判定
 	if _frames.size() >= 2:
-		if current_state == UnitState.IDLE:
+		var moving := false
+		if has_meta("puppet"):
+			moving = _puppet_target_pos != Vector2.ZERO and global_position.distance_to(_puppet_target_pos) > 2.0
+		else:
+			moving = current_state != UnitState.IDLE
+		if not moving:
 			if _frame_index != 0:
 				_frame_index = 0
 				_sprite_rect.texture = _frames[0]
@@ -204,7 +207,7 @@ func _start_path_move(pos: Vector2) -> void:
 		# 空中单位直线飞行，无视地形
 		_path = PackedVector2Array([pos])
 	else:
-		_path = GameManager.find_path(global_position, pos, move_domain)
+		_path = Pathfinding.find_path(global_position, pos, move_domain)
 	_path_index = 0
 	_move_target = pos
 	_is_moving = true
@@ -222,17 +225,17 @@ func _process_moving(_delta: float) -> void:
 			current_state = UnitState.ATTACKING
 			return
 	# 工程师接近敌方建筑即占领（自身消耗）
-	if unit_id == "engineer" and is_instance_valid(_current_target) \
-			and _current_target.is_in_group("buildings") and _current_target.player_id != player_id:
+	if can_capture and is_instance_valid(_current_target) \
+			and _current_target is GameBuilding and _current_target.player_id != player_id:
 		var b_info = UnitData.get_unit_info(_current_target.unit_id)
 		var bsize = b_info.get("size", Vector2i(1, 1))
 		var capture_dist = maxf(bsize.x, bsize.y) * MapData.TILE_SIZE / 2.0 + 22.0
 		if global_position.distance_to(_current_target.global_position) <= capture_dist:
-			if _current_target.has_method("capture_by"):
-				_current_target.capture_by(player_id)
-				AudioManager.play_sfx("build")
+			_current_target.capture_by(player_id)
+			AudioManager.play_sfx("build")
 			remove_from_group("units")
 			remove_from_group("entities")
+			UnitRegistry.unregister(self)
 			GameManager.unregister_unit(self)
 			queue_free()
 			return
@@ -350,47 +353,23 @@ func _process_returning_ore(_delta: float) -> void:
 func _return_to_refinery() -> void:
 	_home_refinery = _find_refinery()
 	if _home_refinery:
-		_path = GameManager.find_path(global_position, _home_refinery.global_position)
+		_path = Pathfinding.find_path(global_position, _home_refinery.global_position)
 		_path_index = 0
 		current_state = UnitState.RETURNING_ORE
 	else:
 		current_state = UnitState.IDLE
 
 func _find_refinery() -> Node:
-	var best: Node = null
-	var best_dist := 999999.0
-	for b in get_tree().get_nodes_in_group("buildings"):
-		if not is_instance_valid(b):
-			continue
-		if b.player_id == player_id and b.unit_id == "ore_refinery":
-			var d = b.global_position.distance_to(global_position)
-			if d < best_dist:
-				best_dist = d
-				best = b
-	return best
+	return UnitRegistry.find_building(player_id, "ore_refinery", global_position)
 
 func _find_nearest_ore() -> Vector2:
-	# 优先以当前位置为起点搜索，避免舍近求远
-	var base_tile := MapData.world_to_tile(global_position)
-	if _home_refinery and is_instance_valid(_home_refinery):
-		base_tile = MapData.world_to_tile(_home_refinery.global_position)
-	# 先检查脚下
+	# 先检查脚下；否则以矿厂（或自身）为基准查矿石索引
 	if GameManager.is_ore_at(global_position):
 		return global_position
-	for radius in range(1, 25):
-		for dx in range(-radius, radius + 1):
-			for dy in range(-radius, radius + 1):
-				if abs(dx) != radius and abs(dy) != radius:
-					continue
-				var tile := base_tile + Vector2i(dx, dy)
-				if tile.x < 0 or tile.x >= GameManager.map_width or tile.y < 0 or tile.y >= GameManager.map_height:
-					continue
-				if GameManager.game_map[tile.y][tile.x] == MapData.TerrainType.ORE:
-					return Vector2(
-						tile.x * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0,
-						tile.y * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0
-					)
-	return Vector2.ZERO
+	var base_pos := global_position
+	if _home_refinery and is_instance_valid(_home_refinery):
+		base_pos = _home_refinery.global_position
+	return GameManager.find_nearest_ore(base_pos)
 
 func _check_attack_opportunity() -> void:
 	var enemy = UnitRegistry.get_nearest_enemy(global_position, player_id, attack_range * 0.8)
@@ -411,9 +390,7 @@ func _fire_at(target: Node2D) -> void:
 func take_damage(amount: int, _attacker: Node = null) -> void:
 	if health <= 0:
 		return
-	var actual = maxi(1, amount - armor)
-	health -= actual
-	health = maxi(0, health)
+	health = maxi(0, health - EntityCommon.apply_armor(amount, armor))
 	_health_bar.visible = true
 	# 受击红闪：用 red_mask 素材叠在精灵上短暂显示
 	var mask_tex = SpriteUtilScript.get_indicator("red_mask")
@@ -457,6 +434,7 @@ func die() -> void:
 		tween.tween_callback(corpse.queue_free)
 	remove_from_group("units")
 	remove_from_group("entities")
+	UnitRegistry.unregister(self)
 	GameManager.unregister_unit(self)
 	queue_free()
 
@@ -481,7 +459,7 @@ func move_to(pos: Vector2) -> void:
 func attack_target(target: Node2D) -> void:
 	if attack_damage <= 0:
 		# 工程师锁定敌方建筑前往占领
-		if unit_id == "engineer" and target.is_in_group("buildings") and target.player_id != player_id:
+		if can_capture and target is GameBuilding and target.player_id != player_id:
 			_current_target = target
 			_start_path_move(target.global_position)
 			return
@@ -500,3 +478,23 @@ func set_harvest_target(refinery: Node) -> void:
 		var nearest_ore = _find_nearest_ore()
 		if nearest_ore != Vector2.ZERO:
 			_start_path_move(nearest_ore)
+
+# ---------- 联机同步公开接口（快照镜像用，外部不直接触碰私有字段） ----------
+
+func get_net_flip() -> bool:
+	return _sprite_rect != null and _sprite_rect.flip_h
+
+func apply_net_state(pos: Vector2, hp: int, flip: bool) -> void:
+	_puppet_target_pos = pos
+	health = hp
+	if _sprite_rect:
+		_sprite_rect.flip_h = flip
+
+func set_net_owner(pid: int) -> void:
+	if player_id == pid:
+		return
+	player_id = pid
+	_frames = SpriteUtilScript.get_unit_frames(unit_id, player_id)
+	if not _frames.is_empty() and _sprite_rect:
+		_frame_index = 0
+		_sprite_rect.texture = _frames[0]

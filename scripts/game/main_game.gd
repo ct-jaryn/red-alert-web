@@ -47,7 +47,21 @@ func _ready() -> void:
 			})();
 		""")
 	_setup_nodes()
+	# 实体生成由 GameManager 信号驱动，单例不直接触碰场景节点
+	GameManager.unit_spawn_requested.connect(_on_unit_spawn_requested)
+	GameManager.building_spawn_requested.connect(_on_building_spawn_requested)
+	GameManager.building_ready_to_place.connect(_on_building_ready_to_place)
 	_start_game()
+	# 联机客户端：场景就绪后通知主机开始发送快照
+	NetworkManager.notify_scene_ready()
+
+func _exit_tree() -> void:
+	if GameManager.unit_spawn_requested.is_connected(_on_unit_spawn_requested):
+		GameManager.unit_spawn_requested.disconnect(_on_unit_spawn_requested)
+	if GameManager.building_spawn_requested.is_connected(_on_building_spawn_requested):
+		GameManager.building_spawn_requested.disconnect(_on_building_spawn_requested)
+	if GameManager.building_ready_to_place.is_connected(_on_building_ready_to_place):
+		GameManager.building_ready_to_place.disconnect(_on_building_ready_to_place)
 
 func _setup_nodes() -> void:
 	buildings_node = Node2D.new()
@@ -94,7 +108,7 @@ func _setup_nodes() -> void:
 		add_child(ai_controller)
 
 func _start_game() -> void:
-	if not GameManager.pending_load.is_empty():
+	if not SaveSystem.pending_load.is_empty():
 		_restore_from_save()
 		return
 	# 联机：双方用同一种子确定性生成地图；仅主机生成初始单位
@@ -122,25 +136,25 @@ func _spawn_starting_units() -> void:
 		_spawn_base(world_pos, i)
 
 func _spawn_base(pos: Vector2, p_id: int) -> void:
-	var cy = _create_building("construction_yard", p_id, pos)
+	var cy = spawn_building("construction_yard", p_id, pos)
 	if cy:
 		GameManager.register_building(cy)
-	var pp = _create_building("power_plant", p_id, pos + Vector2(-120, 0))
+	var pp = spawn_building("power_plant", p_id, pos + Vector2(-120, 0))
 	if pp:
 		GameManager.register_building(pp)
-	var bar = _create_building("barracks", p_id, pos + Vector2(0, -100))
+	var bar = spawn_building("barracks", p_id, pos + Vector2(0, -100))
 	if bar:
 		GameManager.register_building(bar)
-	var ref = _create_building("ore_refinery", p_id, pos + Vector2(120, 0))
+	var ref = spawn_building("ore_refinery", p_id, pos + Vector2(120, 0))
 	if ref:
 		GameManager.register_building(ref)
 	for i in range(3):
 		var unit_pos = _find_passable_pos(pos + Vector2(-60 + i * 30, 80))
-		var rifle = _create_unit("rifle_infantry", p_id, unit_pos)
+		var rifle = spawn_unit("rifle_infantry", p_id, unit_pos)
 		if rifle:
 			GameManager.register_unit(rifle)
 	var harvester_pos = _find_passable_pos(pos + Vector2(0, 100))
-	var harvester = _create_unit("harvester", p_id, harvester_pos)
+	var harvester = spawn_unit("harvester", p_id, harvester_pos)
 	if harvester:
 		GameManager.register_unit(harvester)
 		if ref:
@@ -148,8 +162,8 @@ func _spawn_base(pos: Vector2, p_id: int) -> void:
 
 ## 从存档恢复对局：地图/玩家/实体/迷雾/镜头
 func _restore_from_save() -> void:
-	var data = GameManager.pending_load
-	GameManager.pending_load = {}
+	var data = SaveSystem.pending_load
+	SaveSystem.pending_load = {}
 	GameManager.restore_state(data)
 	map_renderer.setup_map(GameManager.game_map)
 	hud.setup_minimap(GameManager.game_map)
@@ -163,22 +177,22 @@ func _restore_from_save() -> void:
 		var p_id = int(e.get("p", 0))
 		var ent_id = str(e.get("id", ""))
 		if str(e.get("kind", "")) == "b":
-			var b = _create_building(ent_id, p_id, pos)
+			var b = spawn_building(ent_id, p_id, pos)
 			if b:
 				b.health = int(e.get("hp", b.max_health))
 				GameManager.register_building(b)
 				if p_id == 0 and ent_id == "construction_yard":
 					own_base_pos = pos
 		else:
-			var u = _create_unit(ent_id, p_id, pos)
+			var u = spawn_unit(ent_id, p_id, pos)
 			if u:
 				u.health = int(e.get("hp", u.max_health))
 				u.ore_carried = int(e.get("ore", 0))
 				GameManager.register_unit(u)
 	# 采矿车重新绑定各自阵营最近的矿厂
-	for u in get_tree().get_nodes_in_group("units"):
-		if is_instance_valid(u) and u.harvest_capacity > 0:
-			var ref = GameManager._find_refinery(u.player_id)
+	for u in UnitRegistry.get_units():
+		if u.harvest_capacity > 0:
+			var ref = UnitRegistry.find_building(u.player_id, "ore_refinery", u.global_position)
 			if ref:
 				u.set_harvest_target(ref)
 	if own_base_pos != Vector2.ZERO:
@@ -200,7 +214,8 @@ func _find_passable_pos(pos: Vector2) -> Vector2:
 					return check_pos
 	return pos
 
-func _create_building(building_id: String, p_id: int, pos: Vector2) -> Node:
+## 实体工厂：创建节点并挂载到场景（不登记，联机镜像也走此入口）
+func spawn_building(building_id: String, p_id: int, pos: Vector2) -> Node:
 	var building = BuildingScene.instantiate()
 	building.unit_id = building_id
 	building.player_id = p_id
@@ -208,13 +223,31 @@ func _create_building(building_id: String, p_id: int, pos: Vector2) -> Node:
 	buildings_node.add_child(building)
 	return building
 
-func _create_unit(unit_id: String, p_id: int, pos: Vector2) -> Node:
+func spawn_unit(unit_id: String, p_id: int, pos: Vector2) -> Node:
 	var unit = UnitScene.instantiate()
 	unit.unit_id = unit_id
 	unit.player_id = p_id
 	unit.position = pos
 	units_node.add_child(unit)
 	return unit
+
+## GameManager 信号：生产完成的单位从集结点出兵
+func _on_unit_spawn_requested(unit_id: String, p_id: int, pos: Vector2) -> void:
+	var unit = spawn_unit(unit_id, p_id, pos)
+	if not unit:
+		return
+	GameManager.register_unit(unit)
+	# 采矿单位自动绑定最近矿厂开始工作
+	if unit.harvest_capacity > 0:
+		var ref = UnitRegistry.find_building(p_id, "ore_refinery", pos)
+		if ref:
+			unit.set_harvest_target(ref)
+
+## GameManager 信号：确认落地的建筑（人类放置/AI 选址/联机校验后）
+func _on_building_spawn_requested(building_id: String, p_id: int, pos: Vector2) -> void:
+	var building = spawn_building(building_id, p_id, pos)
+	if building:
+		GameManager.register_building(building)
 
 func _on_building_placed(building_id: String, pos: Vector2) -> void:
 	if NetworkManager.is_client():
@@ -227,7 +260,7 @@ func _on_building_placed(building_id: String, pos: Vector2) -> void:
 	effects.create_build_effect(pos, Vector2(bsize.x * MapData.TILE_SIZE, bsize.y * MapData.TILE_SIZE))
 
 func _on_building_ready_to_place(player_id: int, building_id: String) -> void:
-	if player_id == 0:
+	if player_id == GameManager.local_player_id:
 		building_placer.start_placement(building_id, player_id)
 
 func _on_placement_cancelled(building_id: String) -> void:
@@ -307,19 +340,11 @@ func _on_selection_finished(rect: Rect2) -> void:
 		return
 	var selected := []
 	var lp = GameManager.local_player_id
-	for unit in get_tree().get_nodes_in_group("units"):
-		if not is_instance_valid(unit):
-			continue
-		if unit.player_id != lp:
-			continue
+	for unit in UnitRegistry.get_units(lp):
 		if rect.has_point(unit.global_position):
 			selected.append(unit)
 	if selected.is_empty():
-		for building in get_tree().get_nodes_in_group("buildings"):
-			if not is_instance_valid(building):
-				continue
-			if building.player_id != lp:
-				continue
+		for building in UnitRegistry.get_buildings(lp):
 			if rect.has_point(building.global_position):
 				selected.append(building)
 	if not selected.is_empty():
@@ -329,21 +354,15 @@ func _on_selection_finished(rect: Rect2) -> void:
 func _handle_click(pos: Vector2) -> void:
 	var clicked: Node = null
 	var best_dist := 999.0
-	for unit in get_tree().get_nodes_in_group("units"):
-		if not is_instance_valid(unit):
-			continue
+	for unit in UnitRegistry.get_units():
 		var dist = unit.global_position.distance_to(pos)
 		if dist < 30.0 and dist < best_dist:
 			best_dist = dist
 			clicked = unit
 	if not clicked:
-		for building in get_tree().get_nodes_in_group("buildings"):
-			if not is_instance_valid(building):
-				continue
-			var info = UnitData.get_unit_info(building.unit_id)
-			var bsize = info.get("size", Vector2i(1, 1))
-			var half_w = bsize.x * MapData.TILE_SIZE / 2.0
-			var half_h = bsize.y * MapData.TILE_SIZE / 2.0
+		for building in UnitRegistry.get_buildings():
+			var half_w = building.size_cells.x * MapData.TILE_SIZE / 2.0
+			var half_h = building.size_cells.y * MapData.TILE_SIZE / 2.0
 			if abs(building.global_position.x - pos.x) <= half_w and abs(building.global_position.y - pos.y) <= half_h:
 				clicked = building
 				break
@@ -362,24 +381,20 @@ func _handle_right_click(pos: Vector2) -> void:
 		return
 	var has_units := false
 	for u in GameManager.selected_units:
-		if is_instance_valid(u) and u.has_method("move_to"):
+		if is_instance_valid(u) and u is GameUnit:
 			has_units = true
 			break
 	if not has_units:
 		return
 	var target_enemy: Node = null
 	var best_dist := 60.0
-	for entity in get_tree().get_nodes_in_group("entities"):
-		if not is_instance_valid(entity):
-			continue
+	for entity in UnitRegistry.get_buildings() + UnitRegistry.get_units():
 		if entity.player_id == GameManager.local_player_id:
 			continue
 		# 建筑按实际占地矩形判定，点到哪里都能选中
-		if entity.is_in_group("buildings"):
-			var b_info = UnitData.get_unit_info(entity.unit_id)
-			var bsize = b_info.get("size", Vector2i(1, 1))
-			if abs(entity.global_position.x - pos.x) <= bsize.x * MapData.TILE_SIZE / 2.0 \
-					and abs(entity.global_position.y - pos.y) <= bsize.y * MapData.TILE_SIZE / 2.0:
+		if entity is GameBuilding:
+			if abs(entity.global_position.x - pos.x) <= entity.size_cells.x * MapData.TILE_SIZE / 2.0 \
+					and abs(entity.global_position.y - pos.y) <= entity.size_cells.y * MapData.TILE_SIZE / 2.0:
 				target_enemy = entity
 				break
 		var dist = entity.global_position.distance_to(pos)
@@ -390,7 +405,7 @@ func _handle_right_click(pos: Vector2) -> void:
 	if NetworkManager.is_client():
 		var ids := []
 		for u in GameManager.selected_units:
-			if is_instance_valid(u) and u.has_meta("net_id") and u.is_in_group("units"):
+			if is_instance_valid(u) and u.has_meta("net_id") and u is GameUnit:
 				ids.append(u.get_meta("net_id"))
 		if not ids.is_empty():
 			if target_enemy and target_enemy.has_meta("net_id"):
@@ -402,9 +417,9 @@ func _handle_right_click(pos: Vector2) -> void:
 			var unit = GameManager.selected_units[i]
 			if not is_instance_valid(unit):
 				continue
-			if not unit.has_method("move_to"):
+			if not (unit is GameUnit):
 				continue
-			if target_enemy and unit.has_method("attack_target"):
+			if target_enemy:
 				unit.attack_target(target_enemy)
 			else:
 				var cols = ceili(sqrt(GameManager.selected_units.size()))
@@ -441,17 +456,17 @@ func _attack_target(target: Node) -> void:
 	if NetworkManager.is_client():
 		var ids := []
 		for u in GameManager.selected_units:
-			if is_instance_valid(u) and u.has_meta("net_id") and u.is_in_group("units"):
+			if is_instance_valid(u) and u.has_meta("net_id") and u is GameUnit:
 				ids.append(u.get_meta("net_id"))
 		if not ids.is_empty() and target.has_meta("net_id"):
 			NetworkManager.send_attack(ids, target.get_meta("net_id"))
 		return
 	for unit in GameManager.selected_units:
-		if is_instance_valid(unit) and unit.has_method("attack_target"):
+		if is_instance_valid(unit) and unit is GameUnit:
 			unit.attack_target(target)
 
 func _delete_selected() -> void:
 	for unit in GameManager.selected_units:
-		if is_instance_valid(unit) and unit.has_method("die"):
+		if is_instance_valid(unit) and (unit is GameUnit or unit is GameBuilding):
 			unit.die()
 	GameManager.set_selection([])

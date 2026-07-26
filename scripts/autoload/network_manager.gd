@@ -2,24 +2,27 @@ extends Node
 
 ## 多人联机管理器：WebSocket 主机权威架构（1v1）。
 ## 主机=玩家0，运行完整模拟；客户端=玩家1，发送指令并按快照渲染镜像。
+## 快照为增量式：仅发送状态变化的实体 + 死亡列表；客户端场景就绪后开始同步。
 
-const MapData = preload("res://scripts/data/map_data.gd")
 const UnitData = preload("res://scripts/data/unit_data.gd")
-const SpriteUtilScript = preload("res://scripts/ui/sprite_util.gd")
 
 enum Mode { OFFLINE, HOST, CLIENT }
 
 const DEFAULT_PORT := 9101
 const SNAPSHOT_INTERVAL := 0.15
+## 1v1 架构下远端（客户端）玩家恒为 1；扩展多人时仅需改造此处
+const REMOTE_PLAYER_ID := 1
 
 var mode: int = Mode.OFFLINE
 var match_seed: int = 0
 var in_match: bool = false
 
 var _client_peer: int = 0
+var _client_ready: bool = false   # 主机侧：客户端场景加载完成才开始发快照
 var _next_net_id: int = 1
-var _tracked: Dictionary = {}   # net_id -> Node（主机侧）
-var _puppets: Dictionary = {}   # net_id -> Node（客户端侧镜像）
+var _tracked: Dictionary = {}     # net_id -> Node（主机侧）
+var _puppets: Dictionary = {}     # net_id -> Node（客户端侧镜像）
+var _last_sent: Dictionary = {}   # net_id -> 上次发送的状态数组（增量比对）
 var _snapshot_timer: float = 0.0
 var _snap_count: int = 0
 
@@ -59,12 +62,18 @@ func leave() -> void:
 	in_match = false
 	mode = Mode.OFFLINE
 	_client_peer = 0
+	_client_ready = false
 	_tracked.clear()
 	_puppets.clear()
+	_last_sent.clear()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 
 func is_client() -> bool:
 	return mode == Mode.CLIENT
+
+## 主机视角：该玩家是否为远端（客户端）人类玩家
+func is_remote_player(player_id: int) -> bool:
+	return mode == Mode.HOST and player_id == REMOTE_PLAYER_ID
 
 func _on_peer_connected(id: int) -> void:
 	if mode != Mode.HOST:
@@ -80,6 +89,7 @@ func _on_peer_connected(id: int) -> void:
 func _on_peer_disconnected(id: int) -> void:
 	if mode == Mode.HOST and id == _client_peer:
 		_client_peer = 0
+		_client_ready = false
 		if in_match:
 			_back_to_menu("对方已断线")
 		else:
@@ -106,15 +116,30 @@ func _start_match(seed_val: int, map_opt: int) -> void:
 	match_seed = seed_val
 	in_match = true
 	_next_net_id = 1
+	_client_ready = false
 	_tracked.clear()
 	_puppets.clear()
+	_last_sent.clear()
 	GameManager.reset()
 	# 联机地图用预设尺寸（双方由同一种子确定性生成）
 	GameManager.map_size_option = mini(map_opt, 2)
-	GameManager.local_player_id = 0 if mode == Mode.HOST else 1
+	GameManager.local_player_id = 0 if mode == Mode.HOST else REMOTE_PLAYER_ID
 	get_tree().paused = false
 	print("NET: match start seed=%d local_player=%d" % [seed_val, GameManager.local_player_id])
 	get_tree().change_scene_to_file("res://scenes/game/main.tscn")
+
+## 客户端主场景加载完成后调用：通知主机可以开始发送快照
+func notify_scene_ready() -> void:
+	if mode == Mode.CLIENT and in_match:
+		_client_scene_ready.rpc_id(1)
+
+@rpc("any_peer", "reliable")
+func _client_scene_ready() -> void:
+	if mode != Mode.HOST or multiplayer.get_remote_sender_id() != _client_peer:
+		return
+	_client_ready = true
+	# 强制下个快照全量发送，补齐客户端错过的静态实体
+	_last_sent.clear()
 
 ## 主机：登记实体并分配网络 ID
 func track_entity(node: Node) -> void:
@@ -127,14 +152,14 @@ func track_entity(node: Node) -> void:
 	_next_net_id += 1
 
 func _process(delta: float) -> void:
-	if mode != Mode.HOST or not in_match or _client_peer == 0:
+	if mode != Mode.HOST or not in_match or _client_peer == 0 or not _client_ready:
 		return
 	_snapshot_timer -= delta
 	if _snapshot_timer <= 0:
 		_snapshot_timer = SNAPSHOT_INTERVAL
 		_send_snapshot()
 
-# ---------- 主机 → 客户端：状态快照 ----------
+# ---------- 主机 → 客户端：增量状态快照 ----------
 
 func _send_snapshot() -> void:
 	var ents := []
@@ -144,16 +169,20 @@ func _send_snapshot() -> void:
 		if not is_instance_valid(n) or n.is_queued_for_deletion():
 			dead.append(nid)
 			continue
-		var kind := 0 if n.is_in_group("buildings") else 1
-		var flip := 0
-		if kind == 1 and n._sprite_rect and n._sprite_rect.flip_h:
-			flip = 1
-		ents.append([nid, kind, n.unit_id, n.player_id, snappedf(n.global_position.x, 0.1), snappedf(n.global_position.y, 0.1), n.health, flip])
+		var kind := 0 if n is GameBuilding else 1
+		var flip: bool = kind == 1 and n.get_net_flip()
+		var state := [snappedf(n.global_position.x, 0.1), snappedf(n.global_position.y, 0.1), n.health, flip, n.player_id]
+		# 增量：状态无变化的实体不重复发送
+		if _last_sent.get(nid, []) == state:
+			continue
+		_last_sent[nid] = state
+		ents.append([nid, kind, n.unit_id, n.player_id, state[0], state[1], n.health, 1 if flip else 0])
 	for nid in dead:
 		_tracked.erase(nid)
-	var data := {"e": ents}
+		_last_sent.erase(nid)
+	var data := {"e": ents, "d": dead}
 	var p0 = GameManager.get_player(0)
-	var p1 = GameManager.get_player(1)
+	var p1 = GameManager.get_player(REMOTE_PLAYER_ID)
 	if p0 and p1:
 		data["c"] = [p0.credits, p1.credits]
 		data["pw"] = [[p0.power_generated, p0.power_used], [p1.power_generated, p1.power_used]]
@@ -168,10 +197,9 @@ func _apply_snapshot(data: Dictionary) -> void:
 	if mode != Mode.CLIENT or not in_match:
 		return
 	var main = get_tree().current_scene
-	if main == null or not main.has_method("_create_unit"):
+	if main == null or not main.has_method("spawn_unit"):
 		return
 	_snap_count += 1
-	var seen := {}
 	for e in data.get("e", []):
 		var nid = int(e[0])
 		var kind = int(e[1])
@@ -180,10 +208,9 @@ func _apply_snapshot(data: Dictionary) -> void:
 		var pos = Vector2(float(e[4]), float(e[5]))
 		var hp = int(e[6])
 		var flip = int(e[7]) == 1
-		seen[nid] = true
 		var node = _puppets.get(nid)
 		if node == null or not is_instance_valid(node):
-			node = main._create_building(uid, pid, pos) if kind == 0 else main._create_unit(uid, pid, pos)
+			node = main.spawn_building(uid, pid, pos) if kind == 0 else main.spawn_unit(uid, pid, pos)
 			if node == null:
 				continue
 			# 镜像实体：禁用本地模拟，仅随快照更新
@@ -191,26 +218,17 @@ func _apply_snapshot(data: Dictionary) -> void:
 			node.set_meta("puppet", true)
 			node.set_meta("net_id", nid)
 			_puppets[nid] = node
-		node.global_position = pos
-		node.health = hp
-		if node.player_id != pid:
-			# 建筑被占领等所有权变化：刷新阵营视觉
-			node.player_id = pid
-			if kind == 0:
-				node._tint_rect.color = MapData.get_player_tint(pid, 0.12)
-				var tex = SpriteUtilScript.get_building_texture(uid, pid)
-				if tex:
-					node._sprite_rect.texture = tex
-		if kind == 1 and node._sprite_rect:
-			node._sprite_rect.flip_h = flip
-	var to_remove := []
-	for nid in _puppets:
-		if not seen.has(nid):
-			to_remove.append(nid)
-	for nid in to_remove:
-		var n = _puppets[nid]
+		node.set_net_owner(pid)
+		if kind == 0:
+			node.apply_net_state(pos, hp)
+		else:
+			node.apply_net_state(pos, hp, flip)
+	# 死亡实体：播放爆炸并移除镜像
+	for nid_raw in data.get("d", []):
+		var nid = int(nid_raw)
+		var n = _puppets.get(nid)
 		_puppets.erase(nid)
-		if is_instance_valid(n):
+		if n != null and is_instance_valid(n):
 			if main.has_node("Effects"):
 				main.get_node("Effects").create_explosion(n.global_position, 1.2)
 			AudioManager.play_sfx("explosion")
@@ -224,7 +242,7 @@ func _apply_snapshot(data: Dictionary) -> void:
 			p.credits = int(c[i])
 			p.power_generated = int(pw[i][0])
 			p.power_used = int(pw[i][1])
-		var lp = GameManager.get_player(1)
+		var lp = GameManager.get_player(GameManager.local_player_id)
 		lp.build_queue.clear()
 		for q in data.get("q", []):
 			lp.build_queue.append(str(q))
@@ -234,11 +252,11 @@ func _apply_snapshot(data: Dictionary) -> void:
 		var bb = data.get("bb", {})
 		for k in bb:
 			lp.built_buildings[k] = int(bb[k])
-		GameManager.credits_changed.emit(1, lp.credits)
-		GameManager.power_changed.emit(1, lp.power_generated, lp.power_used)
-		GameManager.build_queue_updated.emit(1, lp.build_queue)
+		GameManager.credits_changed.emit(lp.id, lp.credits)
+		GameManager.power_changed.emit(lp.id, lp.power_generated, lp.power_used)
+		GameManager.build_queue_updated.emit(lp.id, lp.build_queue)
 	if _snap_count % 40 == 1:
-		print("NET_SNAP #%d ents=%d puppets=%d local_credits=%d" % [_snap_count, data.get("e", []).size(), _puppets.size(), GameManager.get_player(1).credits if GameManager.players.size() >= 2 else -1])
+		print("NET_SNAP #%d delta_ents=%d puppets=%d" % [_snap_count, data.get("e", []).size(), _puppets.size()])
 
 # ---------- 客户端 → 主机：操作指令 ----------
 
@@ -253,7 +271,7 @@ func _cmd_move(ids: Array, x: float, y: float) -> void:
 	var units := []
 	for nid in ids:
 		var n = _tracked.get(int(nid))
-		if is_instance_valid(n) and n.is_in_group("units") and n.player_id == 1:
+		if is_instance_valid(n) and n is GameUnit and n.player_id == REMOTE_PLAYER_ID:
 			units.append(n)
 	var cols = ceili(sqrt(maxi(units.size(), 1)))
 	for i in range(units.size()):
@@ -272,7 +290,7 @@ func _cmd_attack(ids: Array, target_nid: int) -> void:
 		return
 	for nid in ids:
 		var n = _tracked.get(int(nid))
-		if is_instance_valid(n) and n.is_in_group("units") and n.player_id == 1 and n.has_method("attack_target"):
+		if is_instance_valid(n) and n is GameUnit and n.player_id == REMOTE_PLAYER_ID:
 			n.attack_target(target)
 
 func send_build(item_id: String) -> void:
@@ -282,7 +300,7 @@ func send_build(item_id: String) -> void:
 func _cmd_build(item_id: String) -> void:
 	if mode != Mode.HOST or multiplayer.get_remote_sender_id() != _client_peer:
 		return
-	GameManager.add_to_build_queue(1, item_id)
+	GameManager.add_to_build_queue(REMOTE_PLAYER_ID, item_id)
 
 func send_cancel_queue(index: int, item_id: String) -> void:
 	_cmd_cancel_queue.rpc_id(1, index, item_id)
@@ -291,14 +309,14 @@ func send_cancel_queue(index: int, item_id: String) -> void:
 func _cmd_cancel_queue(index: int, item_id: String) -> void:
 	if mode != Mode.HOST or multiplayer.get_remote_sender_id() != _client_peer:
 		return
-	var p = GameManager.get_player(1)
+	var p = GameManager.get_player(REMOTE_PLAYER_ID)
 	if not p or index < 0 or index >= p.build_queue.size():
 		return
 	if p.build_queue[index] != item_id:
 		return
 	var info = UnitData.get_unit_info(item_id)
 	p.build_queue.remove_at(index)
-	GameManager.add_credits(1, info.get("cost", 0))
+	GameManager.add_credits(REMOTE_PLAYER_ID, info.get("cost", 0))
 	if index == 0:
 		p.current_build_item = ""
 		p.build_progress = 0.0
@@ -312,16 +330,16 @@ func send_place(item_id: String, pos: Vector2) -> void:
 func _cmd_place(item_id: String, x: float, y: float) -> void:
 	if mode != Mode.HOST or multiplayer.get_remote_sender_id() != _client_peer:
 		return
-	if GameManager.pending_building_player != 1 or GameManager.pending_building_id != item_id:
+	if GameManager.pending_building_player != REMOTE_PLAYER_ID or GameManager.pending_building_id != item_id:
 		return
-	var info = UnitData.get_unit_info(item_id)
-	var size = info.get("size", Vector2i(1, 1))
 	var pos = Vector2(x, y)
-	if GameManager._ai_can_place_at(1, pos, size):
+	# 统一放置校验（含水上建筑地形规则）
+	if GameManager.can_place_at(REMOTE_PLAYER_ID, item_id, pos):
 		GameManager.confirm_building_placement(pos)
 	else:
 		# 位置无效：退款并清除待放置
-		GameManager.add_credits(1, info.get("cost", 0))
+		var info = UnitData.get_unit_info(item_id)
+		GameManager.add_credits(REMOTE_PLAYER_ID, info.get("cost", 0))
 		GameManager.pending_building_id = ""
 		GameManager.pending_building_player = -1
 
@@ -332,10 +350,10 @@ func send_cancel_place(item_id: String) -> void:
 func _cmd_cancel_place(item_id: String) -> void:
 	if mode != Mode.HOST or multiplayer.get_remote_sender_id() != _client_peer:
 		return
-	if GameManager.pending_building_player != 1 or GameManager.pending_building_id != item_id:
+	if GameManager.pending_building_player != REMOTE_PLAYER_ID or GameManager.pending_building_id != item_id:
 		return
 	var info = UnitData.get_unit_info(item_id)
-	GameManager.add_credits(1, info.get("cost", 0))
+	GameManager.add_credits(REMOTE_PLAYER_ID, info.get("cost", 0))
 	GameManager.pending_building_id = ""
 	GameManager.pending_building_player = -1
 
@@ -350,12 +368,13 @@ func notify_ready_to_place(item_id: String) -> void:
 func _remote_ready_place(item_id: String) -> void:
 	var main = get_tree().current_scene
 	if main and "building_placer" in main and main.building_placer:
-		main.building_placer.start_placement(item_id, 1)
+		main.building_placer.start_placement(item_id, GameManager.local_player_id)
 
 ## 主机：广播开火事件供客户端播放特效音效
 func broadcast_fire(from_pos: Vector2, to_pos: Vector2) -> void:
 	if mode == Mode.HOST and _client_peer != 0:
 		_fire_event.rpc_id(_client_peer, from_pos.x, from_pos.y, to_pos.x, to_pos.y)
+
 @rpc("authority", "unreliable")
 func _fire_event(fx: float, fy: float, tx: float, ty: float) -> void:
 	var main = get_tree().current_scene
@@ -385,8 +404,7 @@ func report_tile_change(tile: Vector2i, terrain: int) -> void:
 
 @rpc("authority", "reliable")
 func _tile_change(x: int, y: int, terrain: int) -> void:
-	if y >= 0 and y < GameManager.map_height and x >= 0 and x < GameManager.map_width:
-		GameManager.game_map[y][x] = terrain
-		var main = get_tree().current_scene
-		if main and main.has_node("MapRenderer"):
-			main.get_node("MapRenderer").queue_redraw()
+	GameManager.apply_tile_change(x, y, terrain)
+	var main = get_tree().current_scene
+	if main and main.has_node("MapRenderer"):
+		main.get_node("MapRenderer").queue_redraw()

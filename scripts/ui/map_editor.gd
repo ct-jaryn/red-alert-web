@@ -30,7 +30,7 @@ var _terrain_names := {
 
 func _ready() -> void:
 	# 已有自定义地图则继续编辑，否则新建全草地画布
-	game_map = GameManager.load_custom_map()
+	game_map = SaveSystem.load_custom_map()
 	if game_map.is_empty():
 		for y in range(map_height):
 			var row := []
@@ -98,7 +98,7 @@ func _setup_ui() -> void:
 	var save_btn = FontUtilScript.make_button("保存地图", 13)
 	save_btn.custom_minimum_size = Vector2(80, 30)
 	save_btn.pressed.connect(func():
-		if GameManager.save_custom_map(game_map):
+		if SaveSystem.save_custom_map(game_map):
 			_status_label.text = "已保存！主菜单地图选'自定义'即可游玩"
 		else:
 			_status_label.text = "保存失败"

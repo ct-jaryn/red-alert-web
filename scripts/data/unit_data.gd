@@ -83,6 +83,7 @@ static var buildings := {
 		"produces": ["turret_missile", "airfield"],
 		"description": "启用小地图，解锁导弹磉堡和机场。",
 		"prerequisite": "ore_refinery",
+		"vision": 10,
 	},
 	"airfield": {
 		"name": "机场",
@@ -123,6 +124,7 @@ static var buildings := {
 		"produces": [],
 		"description": "修复受损载具。",
 		"prerequisite": "war_factory",
+		"repairs_vehicles": true,
 	},
 	"turret_gun": {
 		"name": "机枪碉堡",
@@ -188,6 +190,7 @@ static var units := {
 		"armor": 0,
 		"prerequisite": "barracks",
 		"description": "占领敌方建筑。",
+		"can_capture": true,
 	},
 	"rocket_soldier": {
 		"name": "火箭兵",
@@ -265,6 +268,7 @@ static var units := {
 		"armor": 12,
 		"prerequisite": "war_factory",
 		"description": "缓慢但强力的苏联重型坦克。",
+		"sprite_size": Vector2(42, 36),
 	},
 	"machine_gunner": {
 		"name": "机枪兵",
@@ -436,6 +440,7 @@ static var units := {
 		"prerequisite": "shipyard",
 		"description": "超远程重炮舰，海上堆垒。",
 		"domain": "water",
+		"sprite_size": Vector2(46, 34),
 	},
 }
 

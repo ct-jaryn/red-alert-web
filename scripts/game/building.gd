@@ -1,3 +1,4 @@
+class_name GameBuilding
 extends StaticBody2D
 
 const MapData = preload("res://scripts/data/map_data.gd")
@@ -25,6 +26,7 @@ var _construction_timer: float = 0.0
 var _construction_duration: float = 1.0
 var _is_constructing: bool = false
 var _repair_timer: float = 0.0
+var _repairs_vehicles: bool = false
 
 var _health_bar: ProgressBar
 var _selection_rect: Node2D
@@ -49,6 +51,7 @@ func _ready() -> void:
 		attack_range = info.get("attack_range", 0.0)
 		attack_cooldown = info.get("attack_cooldown", 1.0)
 		can_attack = attack_damage > 0 and attack_range > 0.0
+		_repairs_vehicles = info.get("repairs_vehicles", false)
 	# 建筑占用独立碰撞层，碰撞体尺寸匹配实际占地
 	collision_layer = 2
 	collision_mask = 0
@@ -92,6 +95,7 @@ func _setup_visuals() -> void:
 	_tint_rect.position = Vector2(-w / 2.0, -h / 2.0)
 	_tint_rect.color = tint_color
 	add_child(_tint_rect)
+	var hb_pack = EntityCommon.create_health_bar(w, Vector2.ZERO)
 	_border = ReferenceRect.new()
 	_border.size = Vector2(w, h)
 	_border.position = Vector2(-w / 2.0, -h / 2.0)
@@ -99,20 +103,10 @@ func _setup_visuals() -> void:
 	_border.border_width = 2.0
 	_border.editor_only = false
 	add_child(_border)
-	_health_bar = ProgressBar.new()
-	_health_bar.size = Vector2(w, 4)
+	_health_bar = hb_pack["bar"]
+	_health_fill = hb_pack["fill"]
 	_health_bar.position = Vector2(-w / 2.0, -h / 2.0 - 8)
-	_health_bar.max_value = 1.0
-	_health_bar.value = 1.0
-	_health_bar.show_percentage = false
-	var bg_style = StyleBoxFlat.new()
-	bg_style.bg_color = Color(0.2, 0.2, 0.2)
-	_health_bar.add_theme_stylebox_override("background", bg_style)
-	_health_fill = StyleBoxFlat.new()
-	_health_fill.bg_color = Color(0, 1, 0)
-	_health_bar.add_theme_stylebox_override("fill", _health_fill)
 	add_child(_health_bar)
-	_health_bar.visible = false
 	_selection_rect = Node2D.new()
 	_selection_rect.visible = false
 	add_child(_selection_rect)
@@ -145,15 +139,11 @@ func _process(delta: float) -> void:
 		if progress >= 1.0:
 			_is_constructing = false
 			_construction_overlay.visible = false
-	if _health_bar.visible and max_health > 0:
-		var h_ratio = float(health) / float(max_health)
-		_health_bar.value = h_ratio
-		if h_ratio > 0.6:
-			_health_fill.bg_color = Color(0, 1, 0)
-		elif h_ratio > 0.3:
-			_health_fill.bg_color = Color(1, 1, 0)
-		else:
-			_health_fill.bg_color = Color(1, 0, 0)
+	# 联机镜像建筑：受损或选中时显示血条（不会收到 take_damage）
+	if has_meta("puppet"):
+		_health_bar.visible = is_selected or health < max_health
+	if _health_bar.visible:
+		EntityCommon.update_health_bar(_health_bar, _health_fill, health, max_health)
 
 func _physics_process(delta: float) -> void:
 	if can_attack and not _is_constructing and health > 0:
@@ -161,7 +151,7 @@ func _physics_process(delta: float) -> void:
 		if _attack_timer <= 0:
 			_try_attack()
 	# 维修平台：周期性修理附近友方载具（消耗少量金币）
-	if unit_id == "repair_pad" and not _is_constructing and health > 0:
+	if _repairs_vehicles and not _is_constructing and health > 0:
 		_repair_timer -= delta
 		if _repair_timer <= 0:
 			_repair_timer = 0.5
@@ -169,9 +159,7 @@ func _physics_process(delta: float) -> void:
 
 func _do_repair() -> void:
 	for u in UnitRegistry.get_units_in_radius(global_position, 110.0):
-		if not is_instance_valid(u) or not ("player_id" in u):
-			continue
-		if u.player_id != player_id or not u.is_in_group("units"):
+		if not (u is GameUnit) or u.player_id != player_id:
 			continue
 		var info = UnitData.get_unit_info(u.unit_id)
 		if info.get("type", -1) != UnitData.UnitType.VEHICLE:
@@ -203,14 +191,18 @@ func capture_by(new_owner: int) -> void:
 		p_new.built_buildings[unit_id] = p_new.built_buildings.get(unit_id, 0) + 1
 	GameManager.update_power(old_owner)
 	GameManager.update_power(new_owner)
-	_tint_rect.color = MapData.get_player_tint(player_id, 0.12)
-	var tex = SpriteUtilScript.get_building_texture(unit_id, player_id)
-	if tex:
-		_sprite_rect.texture = tex
+	_refresh_owner_visuals()
 	if self in GameManager.selected_units:
 		GameManager.selected_units.erase(self)
 		GameManager.selection_changed.emit(GameManager.selected_units)
 	GameManager.check_game_over()
+
+## 按当前 player_id 刷新阵营色调与贴图（占领/联机同步共用）
+func _refresh_owner_visuals() -> void:
+	_tint_rect.color = MapData.get_player_tint(player_id, 0.12)
+	var tex = SpriteUtilScript.get_building_texture(unit_id, player_id)
+	if tex:
+		_sprite_rect.texture = tex
 
 func _draw_selection() -> void:
 	var w = size_cells.x * MapData.TILE_SIZE
@@ -239,11 +231,7 @@ func _find_target() -> Node2D:
 	var best: Node2D = null
 	var best_dist := attack_range + 1.0
 	for e in enemies:
-		if not is_instance_valid(e):
-			continue
-		if not (e is Node2D):
-			continue
-		if not ("player_id" in e) or e.player_id == player_id:
+		if not is_instance_valid(e) or e.player_id == player_id:
 			continue
 		var dist = e.global_position.distance_to(global_position)
 		if dist < best_dist:
@@ -261,9 +249,7 @@ func _fire_at(target: Node2D) -> void:
 func take_damage(amount: int, _attacker: Node = null) -> void:
 	if health <= 0:
 		return
-	var actual = maxi(1, amount - armor)
-	health -= actual
-	health = maxi(0, health)
+	health = maxi(0, health - EntityCommon.apply_armor(amount, armor))
 	_health_bar.visible = true
 	if health <= 0:
 		die()
@@ -275,6 +261,7 @@ func die() -> void:
 		main.get_node("Effects").create_explosion(global_position, 2.0)
 	remove_from_group("buildings")
 	remove_from_group("entities")
+	UnitRegistry.unregister(self)
 	GameManager.unregister_building(self)
 	queue_free()
 
@@ -287,7 +274,7 @@ func get_rally_point() -> Vector2:
 	# 造船厂集结点在水面，新舰船直接下水
 	var info = UnitData.get_unit_info(unit_id)
 	if info.get("water_based", false):
-		return GameManager.find_nearest_water(_rally_point)
+		return Pathfinding.find_nearest_water(_rally_point)
 	return _rally_point
 
 func get_unit_id() -> String:
@@ -295,3 +282,17 @@ func get_unit_id() -> String:
 
 func get_player_id() -> int:
 	return player_id
+
+# ---------- 联机同步公开接口（快照镜像用，外部不直接触碰私有字段） ----------
+
+func apply_net_state(pos: Vector2, hp: int) -> void:
+	global_position = pos
+	health = hp
+	if _health_bar:
+		_health_bar.visible = is_selected or health < max_health
+
+func set_net_owner(pid: int) -> void:
+	if player_id == pid:
+		return
+	player_id = pid
+	_refresh_owner_visuals()

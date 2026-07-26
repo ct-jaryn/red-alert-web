@@ -18,6 +18,8 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameManager="*res://scripts/autoload/game_manager.gd"
+Pathfinding="*res://scripts/autoload/pathfinding.gd"
+SaveSystem="*res://scripts/autoload/save_system.gd"
 NetworkManager="*res://scripts/autoload/network_manager.gd"
 UnitRegistry="*res://scripts/autoload/unit_registry.gd"
 AudioManager="*res://scripts/autoload/audio_manager.gd"

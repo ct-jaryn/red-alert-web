@@ -4,6 +4,7 @@ extends Node2D
 ## 周期性按己方单位/建筑视野刷新，并隐藏视野外的敌方实体。
 
 const MapData = preload("res://scripts/data/map_data.gd")
+const UnitData = preload("res://scripts/data/unit_data.gd")
 
 var _map_width: int = 0
 var _map_height: int = 0
@@ -54,16 +55,16 @@ func _refresh() -> void:
 		var row = _visible_tiles[y]
 		for x in range(_map_width):
 			row[x] = false
-	for node in get_tree().get_nodes_in_group("entities"):
-		if not is_instance_valid(node):
-			continue
-		if not ("player_id" in node) or node.player_id != _player_id:
-			continue
-		var radius := 6
-		if node.is_in_group("buildings"):
-			radius = 10 if node.unit_id == "radar" else 7
-		elif "move_domain" in node and node.move_domain == "air":
-			radius = 9
+	for node in UnitRegistry.get_units(_player_id) + UnitRegistry.get_buildings(_player_id):
+		# 视野半径：优先取数据表 vision 字段，缺省按实体类型推断
+		var radius: int = UnitData.get_unit_info(node.unit_id).get("vision", 0)
+		if radius <= 0:
+			if node is GameBuilding:
+				radius = 7
+			elif node.move_domain == "air":
+				radius = 9
+			else:
+				radius = 6
 		_mark_visible(MapData.world_to_tile(node.global_position), radius)
 	_update_enemy_visibility()
 	queue_redraw()
@@ -85,12 +86,10 @@ func _mark_visible(center: Vector2i, radius: int) -> void:
 
 ## 敌方单位仅视野内可见；敌方建筑探索过即保持可见
 func _update_enemy_visibility() -> void:
-	for node in get_tree().get_nodes_in_group("entities"):
-		if not is_instance_valid(node):
+	for node in UnitRegistry.get_units() + UnitRegistry.get_buildings():
+		if node.player_id == _player_id:
 			continue
-		if not ("player_id" in node) or node.player_id == _player_id:
-			continue
-		if node.is_in_group("buildings"):
+		if node is GameBuilding:
 			node.visible = is_explored(node.global_position)
 		else:
 			node.visible = is_visible_at(node.global_position)
@@ -106,6 +105,10 @@ func is_explored(world_pos: Vector2) -> bool:
 	if tile.x < 0 or tile.x >= _map_width or tile.y < 0 or tile.y >= _map_height:
 		return false
 	return _explored[tile.y][tile.x]
+
+## 小地图等外部绘制者只读探索网格（避免直接触碰私有字段）
+func get_explored_grid() -> Array:
+	return _explored
 
 ## 存档序列化：探索状态按行编码为 "01" 字符串
 func get_explored_rows() -> Array:

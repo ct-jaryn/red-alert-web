@@ -161,16 +161,18 @@ func _setup_pause_panel() -> void:
 	_resume_btn.custom_minimum_size = Vector2(200, 40)
 	_resume_btn.pressed.connect(func(): GameManager.toggle_pause())
 	vbox.add_child(_resume_btn)
-	var save_btn = FontUtilScript.make_button("保存游戏")
-	save_btn.custom_minimum_size = Vector2(200, 40)
-	save_btn.pressed.connect(func():
-		if GameManager.save_game():
-			_show_notification("游戏已保存")
-			GameManager.toggle_pause()
-		else:
-			_show_notification("保存失败")
-	)
-	vbox.add_child(save_btn)
+	# 联机对战无法存档（且不真正暂停），隐藏保存按钮
+	if not NetworkManager.in_match:
+		var save_btn = FontUtilScript.make_button("保存游戏")
+		save_btn.custom_minimum_size = Vector2(200, 40)
+		save_btn.pressed.connect(func():
+			if SaveSystem.save_game():
+				_show_notification("游戏已保存")
+				GameManager.toggle_pause()
+			else:
+				_show_notification("保存失败")
+		)
+		vbox.add_child(save_btn)
 	var settings_btn = FontUtilScript.make_button("游戏设置")
 	settings_btn.custom_minimum_size = Vector2(200, 40)
 	settings_btn.pressed.connect(func():

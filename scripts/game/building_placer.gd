@@ -117,51 +117,5 @@ func try_place() -> bool:
 	return true
 
 func _can_place_at(pos: Vector2) -> bool:
-	var info = UnitData.get_unit_info(current_building_id)
-	var size_cells = info.get("size", Vector2i(1, 1))
-	var water_based: bool = info.get("water_based", false)
-	var half_w = size_cells.x * MapData.TILE_SIZE / 2.0
-	var half_h = size_cells.y * MapData.TILE_SIZE / 2.0
-	# 遍历建筑覆盖的所有瓦片：陆地建筑要求可通行，水上建筑要求全部为水域
-	var min_tile_x := int(floor((pos.x - half_w) / MapData.TILE_SIZE))
-	var max_tile_x := int(floor((pos.x + half_w - 0.001) / MapData.TILE_SIZE))
-	var min_tile_y := int(floor((pos.y - half_h) / MapData.TILE_SIZE))
-	var max_tile_y := int(floor((pos.y + half_h - 0.001) / MapData.TILE_SIZE))
-	for tx in range(min_tile_x, max_tile_x + 1):
-		for ty in range(min_tile_y, max_tile_y + 1):
-			var check_pos := Vector2(
-				tx * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0,
-				ty * MapData.TILE_SIZE + MapData.TILE_SIZE / 2.0
-			)
-			var terrain = GameManager.get_terrain_at(check_pos)
-			if water_based:
-				if terrain != MapData.TerrainType.WATER:
-					return false
-			elif not MapData.is_passable(terrain):
-				return false
-	var my_rect = Rect2(
-		pos - Vector2(half_w, half_h),
-		Vector2(size_cells.x * MapData.TILE_SIZE, size_cells.y * MapData.TILE_SIZE)
-	)
-	var buildings = get_tree().get_nodes_in_group("buildings")
-	var touches_existing := false
-	# 水上建筑离岸施工，邻接判定范围放宽到 3 格
-	var adjacency_grow: float = MapData.TILE_SIZE * (3.0 if water_based else 0.5)
-	for b in buildings:
-		if not is_instance_valid(b):
-			continue
-		var b_info = UnitData.get_unit_info(b.unit_id)
-		var b_size = b_info.get("size", Vector2i(1, 1))
-		var b_half_w = b_size.x * MapData.TILE_SIZE / 2.0
-		var b_half_h = b_size.y * MapData.TILE_SIZE / 2.0
-		var b_rect = Rect2(
-			b.global_position - Vector2(b_half_w, b_half_h),
-			Vector2(b_size.x * MapData.TILE_SIZE, b_size.y * MapData.TILE_SIZE)
-		)
-		if b_rect.intersects(my_rect):
-			return false
-		if b.player_id == _player_id:
-			var expanded = b_rect.grow(adjacency_grow)
-			if expanded.intersects(my_rect):
-				touches_existing = true
-	return touches_existing
+	# 放置规则由 GameManager 统一校验（与 AI 选址/联机主机侧验证一致）
+	return GameManager.can_place_at(_player_id, current_building_id, pos)

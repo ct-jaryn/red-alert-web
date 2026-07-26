@@ -66,13 +66,9 @@ func _ready() -> void:
 			return
 		var scale_x = minimap_size.x / (map_width * MapData.TILE_SIZE)
 		var scale_y = minimap_size.y / (map_height * MapData.TILE_SIZE)
-		for node in get_tree().get_nodes_in_group("entities"):
-			if not is_instance_valid(node):
-				continue
+		for node in UnitRegistry.get_buildings() + UnitRegistry.get_units():
 			if not node.visible:
 				# 被战争迷雾隐藏的敌方实体不上小地图
-				continue
-			if not ("player_id" in node):
 				continue
 			var color: Color
 			if node.player_id == GameManager.local_player_id:
@@ -83,12 +79,10 @@ func _ready() -> void:
 				clampf(node.global_position.x * scale_x, 0, minimap_size.x),
 				clampf(node.global_position.y * scale_y, 0, minimap_size.y)
 			)
-			if node.is_in_group("buildings"):
-				var info = UnitData.get_unit_info(node.unit_id)
-				var bsize = info.get("size", Vector2i(1, 1))
+			if node is GameBuilding:
 				var sz = Vector2(
-					maxf(bsize.x * scale_x * MapData.TILE_SIZE, 3),
-					maxf(bsize.y * scale_y * MapData.TILE_SIZE, 3)
+					maxf(node.size_cells.x * scale_x * MapData.TILE_SIZE, 3),
+					maxf(node.size_cells.y * scale_y * MapData.TILE_SIZE, 3)
 				)
 				_unit_dots.draw_rect(Rect2(pos - sz / 2.0, sz), color)
 			else:
@@ -114,13 +108,16 @@ func _draw_fog_overlay() -> void:
 	if game_map.is_empty():
 		return
 	var fog = get_tree().get_first_node_in_group("fog_of_war")
-	if fog == null or not ("_explored" in fog) or fog._explored.is_empty():
+	if fog == null or not fog.has_method("get_explored_grid"):
+		return
+	var explored: Array = fog.get_explored_grid()
+	if explored.is_empty():
 		return
 	var tile_w = minimap_size.x / map_width
 	var tile_h = minimap_size.y / map_height
 	var fog_color = Color(0.02, 0.02, 0.04, 0.95)
 	for y in range(map_height):
-		var row = fog._explored[y]
+		var row = explored[y]
 		var run_start := -1
 		for x in range(map_width + 1):
 			var unexplored: bool = x < map_width and not row[x]

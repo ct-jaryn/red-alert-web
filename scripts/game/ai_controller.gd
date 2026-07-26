@@ -52,6 +52,34 @@ func _ready() -> void:
 	difficulty = maxi(1, difficulty)
 	for item_id in _build_order:
 		_build_target_counts[item_id] = _build_target_counts.get(item_id, 0) + 1
+	# 建筑生产完成后由本控制器选址落地
+	GameManager.ai_building_ready.connect(_on_building_ready)
+
+func _exit_tree() -> void:
+	if GameManager.ai_building_ready.is_connected(_on_building_ready):
+		GameManager.ai_building_ready.disconnect(_on_building_ready)
+
+## AI 建筑选址：以建造厂为中心螺旋扫描合法位置，失败退款
+func _on_building_ready(p_id: int, building_id: String) -> void:
+	if p_id != player_id:
+		return
+	var info = UnitData.get_unit_info(building_id)
+	if info.is_empty():
+		return
+	var base = UnitRegistry.find_building(player_id, "construction_yard")
+	if base == null:
+		# 没有建造厂，退还费用
+		GameManager.add_credits(player_id, info.get("cost", 0))
+		return
+	var base_pos: Vector2 = base.global_position
+	for radius in range(2, 10):
+		for angle_step in range(0, 360, 30):
+			var offset = Vector2.from_angle(deg_to_rad(angle_step)) * radius * MapData.TILE_SIZE
+			var place_pos = base_pos + offset
+			if GameManager.can_place_at(player_id, building_id, place_pos):
+				GameManager.request_spawn_building(building_id, player_id, place_pos)
+				return
+	GameManager.add_credits(player_id, info.get("cost", 0))
 
 func _process(delta: float) -> void:
 	if GameManager.current_state != GameManager.GameState.PLAYING:
@@ -106,9 +134,7 @@ func _build_units() -> void:
 		return
 	# 收集当前可生产的单位集合
 	var producible := {}
-	for producer in get_tree().get_nodes_in_group("buildings"):
-		if not is_instance_valid(producer) or producer.player_id != player_id:
-			continue
+	for producer in UnitRegistry.get_buildings(player_id):
 		for uid in UnitData.get_unit_info(producer.unit_id).get("produces", []):
 			if UnitData.units.has(uid):
 				producible[uid] = true
@@ -127,21 +153,18 @@ func _build_units() -> void:
 			return
 
 func _order_attack_wave() -> void:
-	var units = get_tree().get_nodes_in_group("units")
 	var my_units := []
-	for u in units:
-		if is_instance_valid(u) and u.player_id == player_id and "attack_damage" in u:
-			if u.attack_damage > 0:
-				my_units.append(u)
+	for u in UnitRegistry.get_units(player_id):
+		if u.attack_damage > 0:
+			my_units.append(u)
 	var required = 3 + _attack_wave
 	if my_units.size() < required:
 		return
 	# 优先查找敌方单位作为目标，其次找敌方建筑
 	var enemy_target: Node2D = null
 	var enemy_pos = Vector2.ZERO
-	var enemy_buildings = get_tree().get_nodes_in_group("buildings")
-	for b in enemy_buildings:
-		if is_instance_valid(b) and b.player_id != player_id:
+	for b in UnitRegistry.get_buildings():
+		if b.player_id != player_id:
 			enemy_pos = b.global_position
 			enemy_target = b
 			break
@@ -152,22 +175,20 @@ func _order_attack_wave() -> void:
 		if not is_instance_valid(u):
 			continue
 		# 让单位主动攻击目标，而不是单纯移动
-		if enemy_target and u.has_method("attack_target"):
+		if enemy_target:
 			u.attack_target(enemy_target)
-		elif u.has_method("move_to"):
+		else:
 			var offset = Vector2(randf_range(-80, 80), randf_range(-80, 80))
 			u.move_to(enemy_pos + offset)
 
 func _get_base_position() -> Vector2:
-	var buildings = get_tree().get_nodes_in_group("buildings")
-	for b in buildings:
-		if is_instance_valid(b) and b.player_id == player_id and b.unit_id == "construction_yard":
-			return b.global_position
+	var base = UnitRegistry.find_building(player_id, "construction_yard")
+	if base:
+		return base.global_position
 	return Vector2(MapData.TILE_SIZE * 10, MapData.TILE_SIZE * 10)
 
 func _find_enemy_base() -> Vector2:
-	var buildings = get_tree().get_nodes_in_group("buildings")
-	for b in buildings:
-		if is_instance_valid(b) and b.player_id != player_id and b.unit_id == "construction_yard":
+	for b in UnitRegistry.get_buildings():
+		if b.player_id != player_id and b.unit_id == "construction_yard":
 			return b.global_position
 	return Vector2.ZERO
